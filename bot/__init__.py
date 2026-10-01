@@ -1,0 +1,2 @@
+"""SakuraEmail Telegram bot package."""
+
