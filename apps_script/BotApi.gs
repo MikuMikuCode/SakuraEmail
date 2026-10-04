@@ -40,8 +40,9 @@ function botGetKeys_(payload) {
     const rawStatus = String(cell_(row, licCols.status)).trim();
     const status = normalizeStatus_(rawStatus);
     const deadline = parseDateValue_(cell_(row, licCols.deadline));
+    const licenseType = canonicalLicenseType_(cell_(row, licCols.licenseType));
 
-    if (!key || !deadline || deadline.getTime() <= now.getTime()) {
+    if (!key || !licenseType || !deadline || deadline.getTime() <= now.getTime()) {
       continue;
     }
 
@@ -51,6 +52,7 @@ function botGetKeys_(payload) {
 
     keys.push({
       key,
+      license_type: licenseType,
       status: rawStatus,
       status_code: isUsedLicenseStatus_(status) ? 'used' : 'free',
       expires_at: formatDate_(deadline),
@@ -90,8 +92,9 @@ function botExpiringRenewals_(payload) {
     const rawStatus = String(cell_(row, licCols.status)).trim();
     const status = normalizeStatus_(rawStatus);
     const deadline = parseDateValue_(cell_(row, licCols.deadline));
+    const licenseType = canonicalLicenseType_(cell_(row, licCols.licenseType));
 
-    if (!telegramId || !key || !deadline) {
+    if (!telegramId || !key || !licenseType || !deadline) {
       continue;
     }
 
@@ -102,6 +105,7 @@ function botExpiringRenewals_(payload) {
     recordsByTelegramId[telegramId].push({
       telegramId,
       key,
+      licenseType,
       status,
       deadline,
       rowNumber: row.rowNumber
@@ -126,6 +130,7 @@ function botExpiringRenewals_(payload) {
       const renewalCandidates = activeRecords
         .filter(record =>
           record.rowNumber > expiringRecord.rowNumber &&
+          record.licenseType === expiringRecord.licenseType &&
           isFreeLicenseStatus_(record.status)
         )
         .sort((left, right) => right.rowNumber - left.rowNumber);
@@ -135,7 +140,7 @@ function botExpiringRenewals_(payload) {
       }
 
       const renewal = renewalCandidates[0];
-      const deduplicationKey = telegramId + '|' + normalizeKey_(renewal.key);
+      const deduplicationKey = telegramId + '|' + expiringRecord.licenseType + '|' + normalizeKey_(renewal.key);
       if (seenRenewals[deduplicationKey]) {
         continue;
       }
@@ -143,6 +148,7 @@ function botExpiringRenewals_(payload) {
 
       notifications.push({
         telegram_id: telegramId,
+        license_type: expiringRecord.licenseType,
         expiring_key: expiringRecord.key,
         expiring_at: formatDate_(expiringRecord.deadline),
         new_key: renewal.key,
