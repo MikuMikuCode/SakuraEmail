@@ -10,6 +10,7 @@ from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError
 
 from .api import RenewalNotification, SakuraApiError, SakuraAppsScriptApi
 from .db import Database
+from .formatting import display_license_type, format_datetime
 
 
 logger = logging.getLogger(__name__)
@@ -53,10 +54,11 @@ async def deliver_renewal_notifications(
 
         text = (
             "🌸 <b>Ваша лицензия скоро закончится</b>\n\n"
-            f"Новый ключ: <code>{escape(notification.new_key)}</code>"
+            f"Новый ключ:\n<blockquote><code>{escape(notification.new_key)}</code></blockquote>\n"
+            f"Вид подписки: {escape(display_license_type(notification.license_type))}"
         )
         if notification.new_expires_at:
-            text += f"\nДействует до: {escape(notification.new_expires_at)}"
+            text += f"\nДействует до: {escape(format_datetime(notification.new_expires_at))}"
 
         try:
             await bot.send_message(notification.telegram_id, text)
@@ -79,4 +81,3 @@ def _notification_hash(notification: RenewalNotification) -> str:
         f"{notification.new_key.upper()}"
     )
     return hashlib.sha256(value.encode("utf-8")).hexdigest()
-

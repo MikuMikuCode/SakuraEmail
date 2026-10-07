@@ -21,6 +21,7 @@ class SakuraApiRejected(SakuraApiError):
 @dataclass(frozen=True, slots=True)
 class LicenseKey:
     key: str
+    license_type: str
     status: str
     status_code: str
     expires_at: str
@@ -30,6 +31,7 @@ class LicenseKey:
 @dataclass(frozen=True, slots=True)
 class RenewalNotification:
     telegram_id: int
+    license_type: str
     expiring_key: str
     expiring_at: str
     new_key: str
@@ -70,6 +72,7 @@ class SakuraAppsScriptApi:
             keys.append(
                 LicenseKey(
                     key=key,
+                    license_type=str(raw_key.get("license_type", "")).strip(),
                     status=str(raw_key.get("status", "")).strip(),
                     status_code=str(raw_key.get("status_code", "")).strip(),
                     expires_at=str(raw_key.get("expires_at", "")).strip(),
@@ -101,6 +104,7 @@ class SakuraAppsScriptApi:
             notifications.append(
                 RenewalNotification(
                     telegram_id=telegram_id,
+                    license_type=str(raw_item.get("license_type", "")).strip(),
                     expiring_key=expiring_key,
                     expiring_at=str(raw_item.get("expiring_at", "")).strip(),
                     new_key=new_key,
@@ -149,4 +153,3 @@ def _safe_int(value: Any) -> int:
         return int(value)
     except (TypeError, ValueError):
         return 0
-
