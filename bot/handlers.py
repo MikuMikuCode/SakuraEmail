@@ -4,7 +4,7 @@ import re
 from html import escape
 
 from aiogram import Bot, F, Router
-from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError
+from aiogram.exceptions import TelegramAPIError, TelegramBadRequest, TelegramForbiddenError
 from aiogram.filters import Command, CommandStart, StateFilter
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message, User
@@ -18,6 +18,7 @@ from .keyboards import (
     MANAGEMENT_TEXT,
     MY_KEYS_TEXT,
     THANKS_TEXT,
+    add_thanks_comment_keyboard,
     application_keyboard,
     cancel_action_keyboard,
     close_request_keyboard,
@@ -25,7 +26,7 @@ from .keyboards import (
     management_keyboard,
     thanks_settings_keyboard,
 )
-from .states import ApplicationStates, CreatorMessageStates
+from .states import ApplicationStates, CreatorMessageStates, ThanksCommentStates
 
 
 APPLICATION_PROMPT = (
@@ -223,25 +224,115 @@ def build_router(
             )
             return
 
-        accepted = await database.record_thanks(user.id, user.username)
-        if not accepted:
+        gratitude_id = await database.record_thanks(user.id, user.username)
+        if gratitude_id is None:
             await message.answer(
                 "Спасибо уже отправлено 💗 Повторить можно один раз через сутки."
             )
             return
 
-        await message.answer("Спасибо! Передала создателю (˶ᵔ ᵕ ᵔ˶)♡")
-        if not await database.thanks_notifications_enabled():
+        await message.answer(
+            "💗 <b>Спасибо! Я передала вашу благодарность создателю</b> (˶ᵔ ᵕ ᵔ˶)♡\n\n"
+            "Вы можете добавить комментарий к своему «Спасибо!». Добавить? 🌸",
+            reply_markup=add_thanks_comment_keyboard(gratitude_id),
+        )
+        if await database.thanks_notifications_enabled():
+            username = f"@{escape(user.username)}" if user.username else escape(user.full_name)
+            try:
+                await bot.send_message(
+                    settings.owner_id,
+                    f"{username} сказал(а) спасибо! (づ｡◕‿‿◕｡)づ ♡",
+                )
+            except TelegramAPIError:
+                pass
+
+    @router.callback_query(F.data.startswith("thanks_comment:"))
+    async def begin_thanks_comment(
+        callback: CallbackQuery,
+        state: FSMContext,
+        bot: Bot,
+    ) -> None:
+        user = callback.from_user
+        try:
+            gratitude_id = int((callback.data or "").split(":", 1)[1])
+        except (IndexError, ValueError):
+            await callback.answer("Некорректная благодарность", show_alert=True)
+            return
+
+        if not await database.can_comment_on_thanks(gratitude_id, user.id):
+            await callback.answer("Комментарий уже добавлен или благодарность не найдена")
+            if callback.message is not None:
+                try:
+                    await callback.message.edit_reply_markup(reply_markup=None)
+                except TelegramBadRequest:
+                    pass
+            return
+
+        await _remove_action_prompt(bot, state)
+        await state.clear()
+        await state.set_state(ThanksCommentStates.waiting_for_comment)
+        await state.update_data(gratitude_id=gratitude_id)
+        await callback.answer()
+
+        if callback.message is not None:
+            try:
+                await callback.message.edit_reply_markup(reply_markup=None)
+            except TelegramBadRequest:
+                pass
+            prompt = await callback.message.answer(
+                "🌸 <b>Добавьте комментарий к своему «Спасибо!»</b>\n\n"
+                "Напишите его одним сообщением — я бережно передам создателю "
+                "(｡•̀ᴗ-)✧",
+                reply_markup=cancel_action_keyboard(),
+            )
+            await _remember_action_prompt(state, prompt)
+
+    @router.message(ThanksCommentStates.waiting_for_comment)
+    async def receive_thanks_comment(message: Message, state: FSMContext, bot: Bot) -> None:
+        user = _require_user(message.from_user)
+        comment = (message.text or "").strip()
+        if not comment:
+            await message.answer("Напишите комментарий одним текстовым сообщением 🌸")
+            return
+        if len(comment) > 1500:
+            await message.answer("Комментарий слишком длинный. Сократите его до 1500 символов.")
+            return
+
+        data = await state.get_data()
+        gratitude_id = int(data.get("gratitude_id", 0))
+        if not gratitude_id:
+            await state.clear()
+            await message.answer("Не смогла найти благодарность. Нажмите «Спасибо!» ещё раз.")
+            return
+
+        added = await database.add_thanks_comment(gratitude_id, user.id, comment)
+        if not added:
+            await _remove_action_prompt(bot, state)
+            await state.clear()
+            await message.answer("К этой благодарности комментарий уже добавлен 💗")
             return
 
         username = f"@{escape(user.username)}" if user.username else escape(user.full_name)
+        owner_text = (
+            f"💗 <b>Комментарий {username} к «Спасибо!»:</b>\n\n"
+            f"<blockquote>{escape(comment)}</blockquote>\n"
+            "Спасибо за тёплые слова! (˶˃ ᵕ ˂˶)♡"
+        )
         try:
-            await bot.send_message(
-                settings.owner_id,
-                f"{username} сказал(а) спасибо! (づ｡◕‿‿◕｡)づ ♡",
+            await bot.send_message(settings.owner_id, owner_text)
+        except TelegramAPIError:
+            await database.delete_thanks_comment(gratitude_id, user.id)
+            await message.answer(
+                "Не получилось передать комментарий. Попробуйте отправить его ещё раз чуть позже."
             )
-        except (TelegramForbiddenError, TelegramBadRequest):
-            pass
+            return
+
+        await _remove_action_prompt(bot, state)
+        await state.clear()
+        await message.answer(
+            "💌 Комментарий передан создателю. Спасибо за тёплые слова! (◕‿◕)♡",
+            reply_markup=main_keyboard(user.id == settings.owner_id),
+        )
 
     @router.message(StateFilter(None), F.text == MANAGEMENT_TEXT)
     async def management(message: Message) -> None:

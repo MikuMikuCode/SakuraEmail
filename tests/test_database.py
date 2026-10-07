@@ -25,8 +25,27 @@ class DatabaseTests(unittest.IsolatedAsyncioTestCase):
         self._temporary_directory.cleanup()
 
     async def test_thanks_are_limited_and_counted(self) -> None:
-        self.assertTrue(await self.database.record_thanks(101, "SakuraUser"))
-        self.assertFalse(await self.database.record_thanks(101, "SakuraUser"))
+        gratitude_id = await self.database.record_thanks(101, "SakuraUser")
+        self.assertIsNotNone(gratitude_id)
+        assert gratitude_id is not None
+        self.assertIsNone(await self.database.record_thanks(101, "SakuraUser"))
+
+        self.assertTrue(await self.database.can_comment_on_thanks(gratitude_id, 101))
+        self.assertFalse(await self.database.can_comment_on_thanks(gratitude_id, 999))
+        self.assertFalse(
+            await self.database.add_thanks_comment(gratitude_id, 999, "Чужой комментарий")
+        )
+        self.assertTrue(
+            await self.database.add_thanks_comment(
+                gratitude_id,
+                101,
+                "Спасибо за макрос!",
+            )
+        )
+        self.assertFalse(await self.database.can_comment_on_thanks(gratitude_id, 101))
+        self.assertFalse(
+            await self.database.add_thanks_comment(gratitude_id, 101, "Второй комментарий")
+        )
 
         stats = await self.database.get_thanks_stats()
         self.assertEqual(stats.today, 1)
@@ -36,6 +55,9 @@ class DatabaseTests(unittest.IsolatedAsyncioTestCase):
         await self.database.set_thanks_notifications_enabled(False)
         stats = await self.database.get_thanks_stats()
         self.assertFalse(stats.notifications_enabled)
+
+        await self.database.delete_thanks_comment(gratitude_id, 101)
+        self.assertTrue(await self.database.can_comment_on_thanks(gratitude_id, 101))
 
     async def test_user_lookup_and_request_completion(self) -> None:
         user = await self.database.find_user_by_username("sAKURAuSER")

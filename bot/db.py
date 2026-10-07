@@ -90,6 +90,13 @@ class Database:
                 setting_value TEXT NOT NULL
             );
 
+            CREATE TABLE IF NOT EXISTS gratitude_comments (
+                gratitude_id INTEGER PRIMARY KEY,
+                comment TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                FOREIGN KEY (gratitude_id) REFERENCES gratitudes(id)
+            );
+
             CREATE INDEX IF NOT EXISTS idx_support_requests_status
                 ON support_requests(status, created_at);
 
@@ -256,7 +263,7 @@ class Database:
 
         return int(users_row["count"]), int(requests_row["count"])
 
-    async def record_thanks(self, telegram_id: int, username: str | None) -> bool:
+    async def record_thanks(self, telegram_id: int, username: str | None) -> int | None:
         connection = self._require_connection()
         now = datetime.now(timezone.utc)
         async with self._lock:
@@ -275,9 +282,9 @@ class Database:
             if row is not None:
                 last_sent = _parse_utc(str(row["created_at"]))
                 if now - last_sent < timedelta(days=1):
-                    return False
+                    return None
 
-            await connection.execute(
+            insert_cursor = await connection.execute(
                 """
                 INSERT INTO gratitudes (telegram_id, username_snapshot, created_at)
                 VALUES (?, ?, ?)
@@ -285,7 +292,70 @@ class Database:
                 (telegram_id, username, now.isoformat(timespec="seconds")),
             )
             await connection.commit()
-            return True
+            gratitude_id = int(insert_cursor.lastrowid)
+            await insert_cursor.close()
+            return gratitude_id
+
+    async def can_comment_on_thanks(self, gratitude_id: int, telegram_id: int) -> bool:
+        connection = self._require_connection()
+        cursor = await connection.execute(
+            """
+            SELECT 1
+            FROM gratitudes AS gratitude
+            LEFT JOIN gratitude_comments AS comment
+                ON comment.gratitude_id = gratitude.id
+            WHERE gratitude.id = ?
+              AND gratitude.telegram_id = ?
+              AND comment.gratitude_id IS NULL
+            """,
+            (gratitude_id, telegram_id),
+        )
+        row = await cursor.fetchone()
+        await cursor.close()
+        return row is not None
+
+    async def add_thanks_comment(
+        self,
+        gratitude_id: int,
+        telegram_id: int,
+        comment: str,
+    ) -> bool:
+        connection = self._require_connection()
+        async with self._lock:
+            cursor = await connection.execute(
+                """
+                INSERT OR IGNORE INTO gratitude_comments (
+                    gratitude_id, comment, created_at
+                )
+                SELECT id, ?, ?
+                FROM gratitudes
+                WHERE id = ? AND telegram_id = ?
+                """,
+                (comment, _utc_now(), gratitude_id, telegram_id),
+            )
+            await connection.commit()
+            added = cursor.rowcount > 0
+            await cursor.close()
+            return added
+
+    async def delete_thanks_comment(self, gratitude_id: int, telegram_id: int) -> None:
+        connection = self._require_connection()
+        async with self._lock:
+            cursor = await connection.execute(
+                """
+                DELETE FROM gratitude_comments
+                WHERE gratitude_id = ?
+                  AND EXISTS (
+                      SELECT 1
+                      FROM gratitudes
+                      WHERE id = gratitude_comments.gratitude_id
+                        AND telegram_id = ?
+                  )
+                """,
+                (gratitude_id, telegram_id),
+            )
+            await connection.commit()
+            await cursor.close()
 
     async def get_thanks_stats(self) -> ThanksStats:
         connection = self._require_connection()

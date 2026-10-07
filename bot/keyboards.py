@@ -44,6 +44,19 @@ def cancel_action_keyboard() -> InlineKeyboardMarkup:
     )
 
 
+def add_thanks_comment_keyboard(gratitude_id: int) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="Добавить",
+                    callback_data=f"thanks_comment:{gratitude_id}",
+                )
+            ]
+        ]
+    )
+
+
 def management_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[

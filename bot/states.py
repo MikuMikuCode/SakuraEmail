@@ -8,3 +8,7 @@ class ApplicationStates(StatesGroup):
 class CreatorMessageStates(StatesGroup):
     waiting_for_username = State()
     waiting_for_message = State()
+
+
+class ThanksCommentStates(StatesGroup):
+    waiting_for_comment = State()
