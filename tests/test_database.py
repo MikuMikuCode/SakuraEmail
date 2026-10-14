@@ -137,6 +137,35 @@ class DatabaseTests(unittest.IsolatedAsyncioTestCase):
             [],
         )
 
+    async def test_access_snapshot_replaces_old_values_and_filters_registered_users(self) -> None:
+        await self.database.upsert_user(
+            telegram_id=202,
+            username="BlockedUser",
+            first_name="Blocked",
+            last_name="",
+            role="user",
+        )
+        await self.database.upsert_user(
+            telegram_id=303,
+            username="MissingUser",
+            first_name="Missing",
+            last_name="",
+            role="user",
+        )
+
+        await self.database.replace_access_snapshot({101, 999}, {202})
+
+        self.assertEqual(await self.database.get_access_status(101), "allowed")
+        self.assertEqual(await self.database.get_access_status(202), "blocked")
+        self.assertIsNone(await self.database.get_access_status(303))
+        self.assertEqual(await self.database.list_allowed_user_ids(), {101})
+        self.assertIsNotNone(await self.database.get_access_snapshot_synced_at())
+
+        await self.database.replace_access_snapshot({202}, set())
+        self.assertIsNone(await self.database.get_access_status(101))
+        self.assertEqual(await self.database.get_access_status(202), "allowed")
+        self.assertEqual(await self.database.list_allowed_user_ids(), {202})
+
 
 if __name__ == "__main__":
     unittest.main()

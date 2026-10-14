@@ -22,6 +22,7 @@ from .keyboards import (
     SETTINGS_TEXT,
     THANKS_TEXT,
     cancel_action_keyboard,
+    existing_report_keyboard,
     main_keyboard,
     old_report_dates_keyboard,
     old_report_detail_keyboard,
@@ -89,6 +90,43 @@ def build_work_router(
             user.id,
             _moscow_today(),
         )
+
+    @router.callback_query(F.data == "work_report_replace_today")
+    async def replace_today_report(
+        callback: CallbackQuery,
+        state: FSMContext,
+        bot: Bot,
+    ) -> None:
+        await callback.answer()
+        if callback.message is None:
+            return
+        try:
+            await callback.message.edit_reply_markup(reply_markup=None)
+        except TelegramBadRequest:
+            pass
+        await _begin_report(
+            callback.message,
+            state,
+            bot,
+            api,
+            callback.from_user.id,
+            _moscow_today(),
+            check_existing_today=False,
+        )
+
+    @router.callback_query(F.data == "work_report_keep_today")
+    async def keep_today_report(callback: CallbackQuery, state: FSMContext) -> None:
+        await callback.answer("Отчёт оставлен без изменений")
+        await state.clear()
+        if callback.message is not None:
+            try:
+                await callback.message.edit_reply_markup(reply_markup=None)
+            except TelegramBadRequest:
+                pass
+            await callback.message.answer(
+                "Хорошо, оставляю сегодняшний отчёт без изменений 🌸",
+                reply_markup=main_keyboard(callback.from_user.id == settings.owner_id),
+            )
 
     @router.message(WorkReportStates.waiting_for_report)
     async def receive_report(message: Message, state: FSMContext, bot: Bot) -> None:
@@ -205,8 +243,8 @@ def build_work_router(
         except SakuraApiError:
             if callback.message is not None:
                 await callback.message.answer(
-                    "Не удалось связаться с таблицей. Отчёт пока не сохранён — "
-                    "попробуйте нажать «✅ Отправить» ещё раз чуть позже."
+                    "Сейчас не удалось сохранить отчёт. Попробуйте нажать "
+                    "«✅ Отправить» ещё раз чуть позже."
                 )
             return
 
@@ -231,9 +269,9 @@ def build_work_router(
             elif result.message == "employee_not_found":
                 await state.clear()
                 await _disable_callback_markup(callback)
-                text = "Не нашла ваш Telegram ID в листе «База данных». Обратитесь к создателю."
+                text = "Не удалось подтвердить доступ. Обратитесь к создателю."
             else:
-                text = "Таблица не приняла отчёт. Проверьте данные и попробуйте ещё раз."
+                text = "Не удалось сохранить отчёт. Проверьте данные и попробуйте ещё раз."
             if callback.message is not None:
                 await callback.message.answer(text)
             return
@@ -359,13 +397,11 @@ def build_work_router(
             report = await api.get_work_report(callback.from_user.id, report_date.isoformat())
         except SakuraApiError:
             if callback.message is not None:
-                await callback.message.answer(
-                    "Не удалось получить отчёт из таблицы. Попробуйте немного позже."
-                )
+                await callback.message.answer("Не удалось получить отчёт. Попробуйте немного позже.")
             return
 
         if not report.employee_found:
-            text = "Не нашла ваш Telegram ID в листе «База данных». Обратитесь к создателю."
+            text = "Не удалось подтвердить доступ. Обратитесь к создателю."
         elif report.found:
             text = format_saved_report(report_date, report.items)
         else:
@@ -399,6 +435,7 @@ def build_work_router(
             api,
             callback.from_user.id,
             report_date,
+            check_existing_today=False,
         )
 
     return router
@@ -411,28 +448,42 @@ async def _begin_report(
     api: SakuraAppsScriptApi,
     telegram_id: int,
     report_date: date,
+    check_existing_today: bool = True,
 ) -> None:
     if report_date not in recent_report_dates(_moscow_today()):
         await source_message.answer(
             "Этот день уже нельзя изменить. Доступны только сегодня и два предыдущих дня."
         )
         return
+    if check_existing_today and report_date == _moscow_today():
+        try:
+            existing_report = await api.get_work_report(
+                telegram_id,
+                report_date.isoformat(),
+            )
+        except SakuraApiError:
+            await source_message.answer(
+                "Не удалось проверить сегодняшний отчёт. Попробуйте немного позже."
+            )
+            return
+        if existing_report.found:
+            await _remove_action_prompt(bot, state)
+            await state.clear()
+            await source_message.answer(
+                format_existing_today_report(existing_report.items),
+                reply_markup=existing_report_keyboard(),
+            )
+            return
     try:
         catalog = await api.get_work_catalog(telegram_id)
     except SakuraApiError:
-        await source_message.answer(
-            "Не удалось загрузить список макетов из таблицы. Попробуйте немного позже."
-        )
+        await source_message.answer("Не удалось загрузить список макетов. Попробуйте немного позже.")
         return
     if not catalog.employee_found:
-        await source_message.answer(
-            "Не нашла ваш Telegram ID в листе «База данных». Обратитесь к создателю."
-        )
+        await source_message.answer("Не удалось подтвердить доступ. Обратитесь к создателю.")
         return
     if not catalog.items:
-        await source_message.answer(
-            "В листе «Множители» пока нет доступных видов макетов. Обратитесь к создателю."
-        )
+        await source_message.answer("Пока нет доступных видов макетов. Обратитесь к создателю.")
         return
 
     await _remove_action_prompt(bot, state)
@@ -461,9 +512,7 @@ async def _send_settings(
         await message.answer("Не удалось загрузить личный кабинет. Попробуйте немного позже.")
         return
     if profile is None:
-        await message.answer(
-            "Не нашла ваш Telegram ID в листе «База данных». Обратитесь к создателю."
-        )
+        await message.answer("Не удалось подтвердить доступ. Обратитесь к создателю.")
         return
     work_settings = await database.get_work_settings(telegram_id)
     await message.answer(
@@ -554,6 +603,15 @@ def format_saved_report(
 ) -> str:
     lines = [f"🌸 <b>Отчёт за {format_report_date(report_date)}</b>", ""]
     lines.extend(f"{escape(item.article)} · {item.quantity}" for item in items)
+    return "\n".join(lines)
+
+
+def format_existing_today_report(
+    items: tuple[WorkReportItem, ...] | list[WorkReportItem],
+) -> str:
+    lines = ["🌸 Вы сегодня его уже отправляли:", ""]
+    lines.extend(f"{escape(item.article)} · {item.quantity}" for item in items)
+    lines.extend(["", "Изменить?"])
     return "\n".join(lines)
 
 

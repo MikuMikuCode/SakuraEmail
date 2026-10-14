@@ -4,6 +4,7 @@ import unittest
 from unittest.mock import AsyncMock
 
 from bot.api import (
+    AccessSnapshot,
     SakuraApiUnavailable,
     SakuraAppsScriptApi,
     WorkCatalog,
@@ -16,6 +17,29 @@ from bot.api import (
 
 
 class ApiParsingTests(unittest.IsolatedAsyncioTestCase):
+    async def test_access_snapshot_prefers_blocked_duplicate_and_skips_bad_ids(self) -> None:
+        api = SakuraAppsScriptApi("https://example.com/exec", "x" * 32)
+        api._post = AsyncMock(
+            return_value={
+                "users": [
+                    {"telegram_id": "101", "blocked": False},
+                    {"telegram_id": 202, "blocked": False},
+                    {"telegram_id": "101", "blocked": True},
+                    {"telegram_id": "bad", "blocked": True},
+                    "bad row",
+                ]
+            }
+        )
+
+        self.assertEqual(
+            await api.get_access_snapshot(),
+            AccessSnapshot(
+                allowed_ids=frozenset({202}),
+                blocked_ids=frozenset({101}),
+            ),
+        )
+        api._post.assert_awaited_once_with("bot_access_snapshot")
+
     async def test_license_type_is_read_for_keys_and_renewals(self) -> None:
         api = SakuraAppsScriptApi("https://example.com/exec", "x" * 32)
         api._post = AsyncMock(

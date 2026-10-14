@@ -9,6 +9,7 @@ from aiogram.enums import ParseMode
 from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.types import BotCommand
 
+from .access import AccessController, AccessMiddleware
 from .api import SakuraAppsScriptApi
 from .config import ConfigurationError, Settings
 from .db import Database
@@ -29,13 +30,16 @@ async def main() -> None:
     api = SakuraAppsScriptApi(settings.apps_script_url, settings.bot_api_secret)
     await database.connect()
     await api.connect()
+    access = AccessController(database, api)
 
     bot = Bot(
         token=settings.bot_token,
         default=DefaultBotProperties(parse_mode=ParseMode.HTML),
     )
     dispatcher = Dispatcher(storage=MemoryStorage())
-    dispatcher.include_router(build_router(settings, database, api))
+    dispatcher.message.outer_middleware(AccessMiddleware(access))
+    dispatcher.callback_query.outer_middleware(AccessMiddleware(access))
+    dispatcher.include_router(build_router(settings, database, api, access))
     dispatcher.include_router(build_work_router(settings, database, api))
 
     await bot.set_my_commands(
@@ -50,11 +54,12 @@ async def main() -> None:
             bot,
             api,
             database,
+            access,
             settings.notification_poll_seconds,
         )
     )
     work_worker = asyncio.create_task(
-        work_report_notification_worker(bot, api, database)
+        work_report_notification_worker(bot, api, database, access)
     )
 
     try:

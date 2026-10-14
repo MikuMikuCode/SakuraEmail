@@ -40,6 +40,12 @@ class RenewalNotification:
 
 
 @dataclass(frozen=True, slots=True)
+class AccessSnapshot:
+    allowed_ids: frozenset[int]
+    blocked_ids: frozenset[int]
+
+
+@dataclass(frozen=True, slots=True)
 class WorkProfile:
     display_name: str
     full_name: str
@@ -156,6 +162,31 @@ class SakuraAppsScriptApi:
                 )
             )
         return notifications
+
+    async def get_access_snapshot(self) -> AccessSnapshot:
+        payload = await self._post("bot_access_snapshot")
+        raw_users = payload.get("users", [])
+        if not isinstance(raw_users, list):
+            raise SakuraApiUnavailable("Apps Script returned an invalid access snapshot")
+
+        allowed_ids: set[int] = set()
+        blocked_ids: set[int] = set()
+        for raw_user in raw_users:
+            if not isinstance(raw_user, dict):
+                continue
+            telegram_id = _safe_int(raw_user.get("telegram_id"))
+            if telegram_id <= 0:
+                continue
+            if raw_user.get("blocked") is True:
+                blocked_ids.add(telegram_id)
+                allowed_ids.discard(telegram_id)
+            elif telegram_id not in blocked_ids:
+                allowed_ids.add(telegram_id)
+
+        return AccessSnapshot(
+            allowed_ids=frozenset(allowed_ids),
+            blocked_ids=frozenset(blocked_ids),
+        )
 
     async def get_work_profile(self, telegram_id: int) -> WorkProfile | None:
         payload = await self._post(

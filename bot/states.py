@@ -10,6 +10,12 @@ class CreatorMessageStates(StatesGroup):
     waiting_for_message = State()
 
 
+class CreatorBroadcastStates(StatesGroup):
+    waiting_for_message = State()
+    confirming = State()
+    sending = State()
+
+
 class ThanksCommentStates(StatesGroup):
     waiting_for_comment = State()
 

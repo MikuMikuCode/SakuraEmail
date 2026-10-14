@@ -7,6 +7,7 @@ from datetime import datetime
 from aiogram import Bot
 from aiogram.exceptions import TelegramAPIError, TelegramBadRequest, TelegramForbiddenError
 
+from .access import AccessController
 from .api import SakuraApiError, SakuraAppsScriptApi
 from .db import Database
 from .formatting import MOSCOW_TIMEZONE
@@ -25,11 +26,12 @@ async def work_report_notification_worker(
     bot: Bot,
     api: SakuraAppsScriptApi,
     database: Database,
+    access: AccessController,
     poll_seconds: int = 60,
 ) -> None:
     while True:
         try:
-            await deliver_work_report_notifications(bot, api, database)
+            await deliver_work_report_notifications(bot, api, database, access)
         except asyncio.CancelledError:
             raise
         except Exception:
@@ -41,6 +43,7 @@ async def deliver_work_report_notifications(
     bot: Bot,
     api: SakuraAppsScriptApi,
     database: Database,
+    access: AccessController,
     now: datetime | None = None,
 ) -> None:
     if now is None:
@@ -55,8 +58,19 @@ async def deliver_work_report_notifications(
     report_date = moscow_now.date().isoformat()
     current_minutes = moscow_now.hour * 60 + moscow_now.minute
     candidates = await database.list_due_work_reminders(report_date, current_minutes)
+    allowed_ids = await access.allowed_ids()
+    if allowed_ids is None:
+        logger.warning("Work reminder recipients could not be verified")
+        return
 
     for candidate in candidates:
+        if candidate.telegram_id not in allowed_ids:
+            await database.mark_work_reminder_handled(
+                candidate.telegram_id,
+                report_date,
+                "access_denied",
+            )
+            continue
         try:
             report = await api.get_work_report(candidate.telegram_id, report_date)
         except SakuraApiError:

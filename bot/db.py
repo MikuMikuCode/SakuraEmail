@@ -130,6 +130,12 @@ class Database:
                 FOREIGN KEY (telegram_id) REFERENCES users(telegram_id)
             );
 
+            CREATE TABLE IF NOT EXISTS access_snapshot (
+                telegram_id INTEGER PRIMARY KEY,
+                access_status TEXT NOT NULL
+                    CHECK (access_status IN ('allowed', 'blocked'))
+            );
+
             CREATE INDEX IF NOT EXISTS idx_support_requests_status
                 ON support_requests(status, created_at);
 
@@ -187,6 +193,100 @@ class Database:
         row = await cursor.fetchone()
         await cursor.close()
         return row is not None
+
+    async def list_users(self) -> list[BotUser]:
+        connection = self._require_connection()
+        cursor = await connection.execute(
+            """
+            SELECT telegram_id, username, first_name, last_name
+            FROM users
+            ORDER BY telegram_id
+            """
+        )
+        rows = await cursor.fetchall()
+        await cursor.close()
+        return [
+            BotUser(
+                telegram_id=int(row["telegram_id"]),
+                username=str(row["username"]) if row["username"] else None,
+                first_name=str(row["first_name"]),
+                last_name=str(row["last_name"]),
+            )
+            for row in rows
+        ]
+
+    async def replace_access_snapshot(
+        self,
+        allowed_ids: set[int] | frozenset[int],
+        blocked_ids: set[int] | frozenset[int],
+    ) -> None:
+        connection = self._require_connection()
+        blocked = {int(value) for value in blocked_ids if int(value) > 0}
+        allowed = {
+            int(value)
+            for value in allowed_ids
+            if int(value) > 0 and int(value) not in blocked
+        }
+        async with self._lock:
+            await connection.execute("DELETE FROM access_snapshot")
+            await connection.executemany(
+                "INSERT INTO access_snapshot (telegram_id, access_status) VALUES (?, ?)",
+                [(telegram_id, "allowed") for telegram_id in sorted(allowed)]
+                + [(telegram_id, "blocked") for telegram_id in sorted(blocked)],
+            )
+            await connection.execute(
+                """
+                INSERT INTO bot_settings (setting_key, setting_value)
+                VALUES ('access_snapshot_synced_at', ?)
+                ON CONFLICT(setting_key) DO UPDATE SET
+                    setting_value = excluded.setting_value
+                """,
+                (_utc_now(),),
+            )
+            await connection.commit()
+
+    async def get_access_snapshot_synced_at(self) -> datetime | None:
+        connection = self._require_connection()
+        cursor = await connection.execute(
+            """
+            SELECT setting_value
+            FROM bot_settings
+            WHERE setting_key = 'access_snapshot_synced_at'
+            """
+        )
+        row = await cursor.fetchone()
+        await cursor.close()
+        if row is None:
+            return None
+        try:
+            return _parse_utc(str(row["setting_value"]))
+        except (TypeError, ValueError):
+            return None
+
+    async def get_access_status(self, telegram_id: int) -> str | None:
+        connection = self._require_connection()
+        cursor = await connection.execute(
+            "SELECT access_status FROM access_snapshot WHERE telegram_id = ?",
+            (telegram_id,),
+        )
+        row = await cursor.fetchone()
+        await cursor.close()
+        return str(row["access_status"]) if row is not None else None
+
+    async def list_allowed_user_ids(self) -> set[int]:
+        connection = self._require_connection()
+        cursor = await connection.execute(
+            """
+            SELECT users.telegram_id
+            FROM users
+            INNER JOIN access_snapshot AS access
+                ON access.telegram_id = users.telegram_id
+               AND access.access_status = 'allowed'
+            """
+        )
+        rows = await cursor.fetchall()
+        await cursor.close()
+        return {int(row["telegram_id"]) for row in rows}
 
     async def find_user_by_username(self, username: str) -> BotUser | None:
         connection = self._require_connection()

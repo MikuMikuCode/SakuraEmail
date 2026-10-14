@@ -8,6 +8,7 @@ from unittest.mock import AsyncMock, call
 
 from aiogram import Bot
 
+from bot.access import AccessController
 from bot.api import SakuraApiError, SakuraAppsScriptApi, WorkReport
 from bot.db import Database, WorkReminderCandidate
 from bot.formatting import MOSCOW_TIMEZONE
@@ -47,6 +48,8 @@ class WorkNotificationTests(unittest.IsolatedAsyncioTestCase):
 
         self.bot = AsyncMock(spec=Bot)
         self.api = AsyncMock(spec=SakuraAppsScriptApi)
+        self.access = AsyncMock(spec=AccessController)
+        self.access.allowed_ids.return_value = {101}
 
     async def asyncTearDown(self) -> None:
         await self.database.close()
@@ -59,6 +62,7 @@ class WorkNotificationTests(unittest.IsolatedAsyncioTestCase):
             self.bot,
             self.api,
             self.database,
+            self.access,
             now=_at(17, 29),
         )
 
@@ -69,12 +73,14 @@ class WorkNotificationTests(unittest.IsolatedAsyncioTestCase):
             self.bot,
             self.api,
             self.database,
+            self.access,
             now=_at(17, 30),
         )
         await deliver_work_report_notifications(
             self.bot,
             self.api,
             self.database,
+            self.access,
             now=_at(17, 31),
         )
 
@@ -97,6 +103,7 @@ class WorkNotificationTests(unittest.IsolatedAsyncioTestCase):
             self.bot,
             self.api,
             database,
+            self.access,
             now=SATURDAY,
         )
 
@@ -116,6 +123,7 @@ class WorkNotificationTests(unittest.IsolatedAsyncioTestCase):
             self.bot,
             self.api,
             database,
+            self.access,
             now=_at(17, 30),
         )
 
@@ -124,6 +132,29 @@ class WorkNotificationTests(unittest.IsolatedAsyncioTestCase):
             101,
             "2026-10-12",
             "report_exists",
+        )
+
+    async def test_denied_user_never_receives_work_reminder(self) -> None:
+        database = AsyncMock(spec=Database)
+        database.list_due_work_reminders.return_value = [
+            WorkReminderCandidate(telegram_id=101, end_minutes=18 * 60)
+        ]
+        self.access.allowed_ids.return_value = set()
+
+        await deliver_work_report_notifications(
+            self.bot,
+            self.api,
+            database,
+            self.access,
+            now=_at(17, 30),
+        )
+
+        self.api.get_work_report.assert_not_awaited()
+        self.bot.send_message.assert_not_awaited()
+        database.mark_work_reminder_handled.assert_awaited_once_with(
+            101,
+            "2026-10-12",
+            "access_denied",
         )
 
     async def test_api_error_leaves_reminder_unhandled_for_retry(self) -> None:
@@ -136,12 +167,14 @@ class WorkNotificationTests(unittest.IsolatedAsyncioTestCase):
             self.bot,
             self.api,
             database,
+            self.access,
             now=_at(17, 30),
         )
         await deliver_work_report_notifications(
             self.bot,
             self.api,
             database,
+            self.access,
             now=_at(17, 31),
         )
 

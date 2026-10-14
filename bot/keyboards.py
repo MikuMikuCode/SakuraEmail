@@ -61,6 +61,23 @@ def report_confirmation_keyboard() -> InlineKeyboardMarkup:
     )
 
 
+def existing_report_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="Изменить",
+                    callback_data="work_report_replace_today",
+                ),
+                InlineKeyboardButton(
+                    text="Отмена",
+                    callback_data="work_report_keep_today",
+                ),
+            ]
+        ]
+    )
+
+
 def work_settings_keyboard(notifications_enabled: bool) -> InlineKeyboardMarkup:
     toggle_text = (
         "Выключить уведомления"
@@ -146,10 +163,33 @@ def management_keyboard() -> InlineKeyboardMarkup:
             [InlineKeyboardButton(text="💌 Заявки", callback_data="admin_requests")],
             [
                 InlineKeyboardButton(
+                    text="📣 Сообщение всем",
+                    callback_data="admin_broadcast",
+                )
+            ],
+            [
+                InlineKeyboardButton(
                     text="✉️ Написать пользователю",
                     callback_data="admin_message_user",
                 )
             ],
+        ]
+    )
+
+
+def broadcast_confirmation_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="Отменить",
+                    callback_data="admin_broadcast_cancel",
+                ),
+                InlineKeyboardButton(
+                    text="✅ Отправить всем",
+                    callback_data="admin_broadcast_send",
+                ),
+            ]
         ]
     )
 

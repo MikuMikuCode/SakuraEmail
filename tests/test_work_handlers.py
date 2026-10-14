@@ -7,6 +7,7 @@ from bot.api import WorkReportItem
 from bot.work_handlers import (
     format_date_button,
     format_report_confirmation,
+    format_existing_today_report,
     parse_report_text,
     parse_schedule,
     recent_report_dates,
@@ -70,6 +71,20 @@ class WorkScheduleParsingTests(unittest.TestCase):
 
 
 class WorkReportFormattingTests(unittest.TestCase):
+    def test_existing_today_report_is_shown_before_replacement(self) -> None:
+        self.assertEqual(
+            format_existing_today_report(
+                [
+                    WorkReportItem(article="FGR", quantity=10),
+                    WorkReportItem(article="SNB", quantity=9),
+                ]
+            ),
+            "🌸 Вы сегодня его уже отправляли:\n\n"
+            "FGR · 10\n"
+            "SNB · 9\n\n"
+            "Изменить?",
+        )
+
     def test_recent_dates_are_three_calendar_days_in_chronological_order(self) -> None:
         self.assertEqual(
             recent_report_dates(date(2026, 10, 14)),

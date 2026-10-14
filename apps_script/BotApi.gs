@@ -163,6 +163,45 @@ function botExpiringRenewals_(payload) {
   };
 }
 
+function botGetAccessSnapshot_(payload) {
+  if (!botIsAuthorized_(payload)) {
+    return {
+      ok: false,
+      message: 'unauthorized'
+    };
+  }
+
+  const databaseTable = getTable_(DATABASE_SHEET_NAMES);
+  const databaseDefinitions = databaseColumns_();
+  const databaseColumns = getRequiredColumns_(databaseTable.headers, {
+    telegramId: databaseDefinitions.telegramId
+  }, databaseTable.sheet.getName());
+  const usersByTelegramId = Object.create(null);
+
+  for (const row of databaseTable.rows) {
+    const telegramId = normalizeTelegramId_(cell_(row, databaseColumns.telegramId));
+    if (!telegramId) {
+      continue;
+    }
+
+    const blocked = botIsBlockedAccessMarker_(cell_(row, 1));
+    if (!Object.prototype.hasOwnProperty.call(usersByTelegramId, telegramId)) {
+      usersByTelegramId[telegramId] = false;
+    }
+    if (blocked) {
+      usersByTelegramId[telegramId] = true;
+    }
+  }
+
+  return {
+    ok: true,
+    users: Object.keys(usersByTelegramId).map(telegramId => ({
+      telegram_id: telegramId,
+      blocked: usersByTelegramId[telegramId]
+    }))
+  };
+}
+
 function botGetWorkProfile_(payload) {
   if (!botIsAuthorized_(payload)) {
     return {
@@ -721,4 +760,8 @@ function botIsAuthorized_(payload) {
 
 function botIsActiveKeyStatus_(status) {
   return isFreeLicenseStatus_(status) || isUsedLicenseStatus_(status);
+}
+
+function botIsBlockedAccessMarker_(value) {
+  return ['заблокирован', 'заблокирована', 'blocked'].indexOf(normalizeStatus_(value)) !== -1;
 }

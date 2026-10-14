@@ -8,6 +8,7 @@ from html import escape
 from aiogram import Bot
 from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError
 
+from .access import AccessController
 from .api import RenewalNotification, SakuraApiError, SakuraAppsScriptApi
 from .db import Database
 from .formatting import display_license_type, format_datetime
@@ -20,11 +21,12 @@ async def notification_worker(
     bot: Bot,
     api: SakuraAppsScriptApi,
     database: Database,
+    access: AccessController,
     poll_seconds: int,
 ) -> None:
     while True:
         try:
-            await deliver_renewal_notifications(bot, api, database)
+            await deliver_renewal_notifications(bot, api, database, access)
         except asyncio.CancelledError:
             raise
         except Exception:
@@ -36,7 +38,12 @@ async def deliver_renewal_notifications(
     bot: Bot,
     api: SakuraAppsScriptApi,
     database: Database,
+    access: AccessController,
 ) -> None:
+    allowed_ids = await access.allowed_ids()
+    if allowed_ids is None:
+        logger.warning("Renewal recipients could not be verified")
+        return
     try:
         notifications = await api.get_expiring_renewals()
     except SakuraApiError:
@@ -45,6 +52,8 @@ async def deliver_renewal_notifications(
 
     delivered = 0
     for notification in notifications:
+        if notification.telegram_id not in allowed_ids:
+            continue
         if not await database.user_exists(notification.telegram_id):
             continue
 

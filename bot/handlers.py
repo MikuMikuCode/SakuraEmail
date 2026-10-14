@@ -1,14 +1,21 @@
 from __future__ import annotations
 
+import asyncio
 import re
 from html import escape
 
 from aiogram import Bot, F, Router
-from aiogram.exceptions import TelegramAPIError, TelegramBadRequest, TelegramForbiddenError
+from aiogram.exceptions import (
+    TelegramAPIError,
+    TelegramBadRequest,
+    TelegramForbiddenError,
+    TelegramRetryAfter,
+)
 from aiogram.filters import Command, CommandStart, StateFilter
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message, User
 
+from .access import AccessController, AccessDecision
 from .api import SakuraApiError, SakuraAppsScriptApi
 from .config import Settings
 from .db import Database, SupportRequest, ThanksStats
@@ -21,13 +28,19 @@ from .keyboards import (
     THANKS_TEXT,
     add_thanks_comment_keyboard,
     application_keyboard,
+    broadcast_confirmation_keyboard,
     cancel_action_keyboard,
     close_request_keyboard,
     main_keyboard,
     management_keyboard,
     thanks_settings_keyboard,
 )
-from .states import ApplicationStates, CreatorMessageStates, ThanksCommentStates
+from .states import (
+    ApplicationStates,
+    CreatorBroadcastStates,
+    CreatorMessageStates,
+    ThanksCommentStates,
+)
 
 
 APPLICATION_PROMPT = (
@@ -41,6 +54,7 @@ def build_router(
     settings: Settings,
     database: Database,
     api: SakuraAppsScriptApi,
+    access: AccessController,
 ) -> Router:
     router = Router(name="sakuraemail")
 
@@ -424,8 +438,11 @@ def build_router(
         recipient = await database.find_user_by_username(username)
         if recipient is None:
             await message.answer(
-                "Не нашла этого пользователя в базе. Он должен сначала отправить боту /start."
+                "Этот пользователь ещё не запускал бота."
             )
+            return
+        if await access.check(recipient.telegram_id) != AccessDecision.ALLOWED:
+            await message.answer("У этого пользователя сейчас нет доступа к боту.")
             return
 
         await _remove_action_prompt(bot, state)
@@ -480,6 +497,135 @@ def build_router(
             reply_markup=main_keyboard(True),
         )
 
+    @router.callback_query(F.data == "admin_broadcast")
+    async def begin_broadcast(
+        callback: CallbackQuery,
+        state: FSMContext,
+        bot: Bot,
+    ) -> None:
+        if not _is_owner(callback.from_user, settings):
+            await callback.answer("Недостаточно прав", show_alert=True)
+            return
+        await callback.answer()
+        await _remove_action_prompt(bot, state)
+        await state.clear()
+        await state.set_state(CreatorBroadcastStates.waiting_for_message)
+        if callback.message is not None:
+            prompt = await callback.message.answer(
+                "📣 <b>Сообщение для всех</b>\n\n"
+                "Отправьте текст одним сообщением. Можно использовать оформление "
+                "Telegram: <b>жирный</b>, <i>курсив</i>, <u>подчёркивание</u>, "
+                "<s>зачёркивание</s>, <code>моноширинный шрифт</code>, ссылки, "
+                "спойлеры и цитаты. Перед рассылкой я покажу превью.",
+                reply_markup=cancel_action_keyboard(),
+            )
+            await _remember_action_prompt(state, prompt)
+
+    @router.message(CreatorBroadcastStates.waiting_for_message)
+    async def preview_broadcast(
+        message: Message,
+        state: FSMContext,
+        bot: Bot,
+    ) -> None:
+        if message.from_user is None or message.from_user.id != settings.owner_id:
+            return
+        text = (message.text or "").strip()
+        if not text:
+            await message.answer("Отправьте сообщение текстом.")
+            return
+        html_text = message.html_text.strip()
+        if len(html_text) > 3500:
+            await message.answer("Сообщение слишком длинное. Сократите его до 3500 символов.")
+            return
+
+        await _remove_action_prompt(bot, state)
+        await state.set_state(CreatorBroadcastStates.confirming)
+        await state.update_data(broadcast_html=html_text)
+        preview = await message.answer(
+            "📣 <b>Так сообщение увидят пользователи:</b>\n\n" + html_text,
+            reply_markup=broadcast_confirmation_keyboard(),
+        )
+        await _remember_action_prompt(state, preview)
+
+    @router.callback_query(F.data == "admin_broadcast_cancel")
+    async def cancel_broadcast(callback: CallbackQuery, state: FSMContext) -> None:
+        if not _is_owner(callback.from_user, settings):
+            await callback.answer("Недостаточно прав", show_alert=True)
+            return
+        await state.clear()
+        await callback.answer("Рассылка отменена")
+        if callback.message is not None:
+            try:
+                await callback.message.edit_reply_markup(reply_markup=None)
+            except TelegramBadRequest:
+                pass
+            await callback.message.answer(
+                "Рассылка отменена.",
+                reply_markup=main_keyboard(True),
+            )
+
+    @router.callback_query(F.data == "admin_broadcast_send")
+    async def send_broadcast(callback: CallbackQuery, state: FSMContext, bot: Bot) -> None:
+        if not _is_owner(callback.from_user, settings):
+            await callback.answer("Недостаточно прав", show_alert=True)
+            return
+        if await state.get_state() != CreatorBroadcastStates.confirming.state:
+            await callback.answer("Эта рассылка уже завершена", show_alert=True)
+            return
+
+        data = await state.get_data()
+        html_text = str(data.get("broadcast_html", "")).strip()
+        if not html_text:
+            await state.clear()
+            await callback.answer("Текст сообщения потерялся", show_alert=True)
+            return
+
+        await state.set_state(CreatorBroadcastStates.sending)
+        await callback.answer("Начинаю рассылку…")
+        if callback.message is not None:
+            try:
+                await callback.message.edit_reply_markup(reply_markup=None)
+            except TelegramBadRequest:
+                pass
+
+        recipients = await access.allowed_registered_users()
+        if recipients is None:
+            await state.clear()
+            if callback.message is not None:
+                await callback.message.answer(
+                    "Сейчас не удалось проверить получателей. Рассылка не началась."
+                )
+            return
+
+        delivered = 0
+        unavailable = 0
+        outgoing_text = "📣 <b>Общее сообщение</b>\n\n" + html_text
+        for recipient in recipients:
+            try:
+                await bot.send_message(recipient.telegram_id, outgoing_text)
+            except TelegramRetryAfter as exc:
+                await asyncio.sleep(exc.retry_after)
+                try:
+                    await bot.send_message(recipient.telegram_id, outgoing_text)
+                except TelegramAPIError:
+                    unavailable += 1
+                else:
+                    delivered += 1
+            except TelegramAPIError:
+                unavailable += 1
+            else:
+                delivered += 1
+            await asyncio.sleep(0.05)
+
+        await state.clear()
+        if callback.message is not None:
+            await callback.message.answer(
+                "🌸 <b>Рассылка завершена</b>\n"
+                f"Доставлено: {delivered}\n"
+                f"Недоступны в Telegram: {unavailable}",
+                reply_markup=main_keyboard(True),
+            )
+
     @router.callback_query(F.data.startswith("close_request:"))
     async def close_request(callback: CallbackQuery, bot: Bot) -> None:
         if not _is_owner(callback.from_user, settings):
@@ -499,15 +645,16 @@ def build_router(
                 await callback.message.edit_reply_markup(reply_markup=None)
             return
 
-        user_notified = True
-        try:
-            await bot.send_message(
-                telegram_id,
-                f"🌸 Ваша заявка №{request_id} закрыта. Если понадобится помощь, "
-                "вы всегда можете оставить новую.",
-            )
-        except (TelegramForbiddenError, TelegramBadRequest):
-            user_notified = False
+        user_notified = await access.check(telegram_id) == AccessDecision.ALLOWED
+        if user_notified:
+            try:
+                await bot.send_message(
+                    telegram_id,
+                    f"🌸 Ваша заявка №{request_id} закрыта. Если понадобится помощь, "
+                    "вы всегда можете оставить новую.",
+                )
+            except (TelegramForbiddenError, TelegramBadRequest):
+                user_notified = False
 
         await callback.answer(
             "Заявка выполнена"
