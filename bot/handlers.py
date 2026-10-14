@@ -14,6 +14,7 @@ from .config import Settings
 from .db import Database, SupportRequest, ThanksStats
 from .formatting import display_license_type, format_datetime
 from .keyboards import (
+    KEYS_TEXT,
     LEGACY_REQUEST_KEY_TEXT,
     MANAGEMENT_TEXT,
     MY_KEYS_TEXT,
@@ -53,7 +54,8 @@ def build_router(
 
         greeting = (
             f"🌸 <b>Добро пожаловать, {escape(user.first_name)}!</b>\n\n"
-            "Я помогу получить лицензионный ключ для макроса и напомню о продлении."
+            "Я помогу получить лицензионный ключ для макроса, заполнить рабочий "
+            "отчёт и напомню о важных делах."
         )
         if is_creator:
             greeting += "\n\nДля вас доступен раздел управления."
@@ -155,7 +157,10 @@ def build_router(
             # The request remains available in the creator panel.
             pass
 
-    @router.message(StateFilter(None), F.text.in_({MY_KEYS_TEXT, LEGACY_REQUEST_KEY_TEXT}))
+    @router.message(
+        StateFilter(None),
+        F.text.in_({KEYS_TEXT, MY_KEYS_TEXT, LEGACY_REQUEST_KEY_TEXT}),
+    )
     async def request_key(message: Message) -> None:
         user = _require_user(message.from_user)
         is_creator = user.id == settings.owner_id

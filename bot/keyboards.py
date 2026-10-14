@@ -8,15 +8,20 @@ from aiogram.types import (
 )
 
 
+REPORT_TEXT = "Отчет"
+LEGACY_REPORT_TEXT = "Отчёт"
+KEYS_TEXT = "Ключи"
 MY_KEYS_TEXT = "Мои ключи"
 LEGACY_REQUEST_KEY_TEXT = "🌸 Запросить ключ"
+SETTINGS_TEXT = "Настройки"
 THANKS_TEXT = "Спасибо!"
 MANAGEMENT_TEXT = "⚙️ Управление"
 
 
 def main_keyboard(is_creator: bool) -> ReplyKeyboardMarkup:
     rows = [
-        [KeyboardButton(text=MY_KEYS_TEXT)],
+        [KeyboardButton(text=REPORT_TEXT), KeyboardButton(text=KEYS_TEXT)],
+        [KeyboardButton(text=SETTINGS_TEXT)],
         [KeyboardButton(text=THANKS_TEXT)],
     ]
     if is_creator:
@@ -40,6 +45,83 @@ def cancel_action_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [InlineKeyboardButton(text="Отменить", callback_data="cancel_action")]
+        ]
+    )
+
+
+def report_confirmation_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text="Отменить", callback_data="work_report_cancel"),
+                InlineKeyboardButton(text="Изменить", callback_data="work_report_change"),
+            ],
+            [InlineKeyboardButton(text="✅ Отправить", callback_data="work_report_submit")],
+        ]
+    )
+
+
+def work_settings_keyboard(notifications_enabled: bool) -> InlineKeyboardMarkup:
+    toggle_text = (
+        "Выключить уведомления"
+        if notifications_enabled
+        else "Включить уведомления"
+    )
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="Изменить график работы",
+                    callback_data="work_schedule_change",
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text=toggle_text,
+                    callback_data="work_notifications_toggle",
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="Изменить старый отчёт",
+                    callback_data="work_old_reports",
+                )
+            ],
+        ]
+    )
+
+
+def old_report_dates_keyboard(dates: list[tuple[str, str]]) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text=label,
+                    callback_data=f"work_report_view:{date_key}",
+                )
+                for date_key, label in dates
+            ]
+        ]
+    )
+
+
+def old_report_detail_keyboard(report_date: str) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="Изменить",
+                    callback_data=f"work_report_edit:{report_date}",
+                )
+            ]
+        ]
+    )
+
+
+def work_reminder_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="Заполнить отчёт", callback_data="work_report_today")]
         ]
     )
 

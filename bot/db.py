@@ -34,6 +34,20 @@ class ThanksStats:
     notifications_enabled: bool
 
 
+@dataclass(frozen=True, slots=True)
+class WorkSettings:
+    telegram_id: int
+    start_minutes: int
+    end_minutes: int
+    notifications_enabled: bool
+
+
+@dataclass(frozen=True, slots=True)
+class WorkReminderCandidate:
+    telegram_id: int
+    end_minutes: int
+
+
 class Database:
     def __init__(self, path: Path) -> None:
         self._path = path
@@ -97,6 +111,25 @@ class Database:
                 FOREIGN KEY (gratitude_id) REFERENCES gratitudes(id)
             );
 
+            CREATE TABLE IF NOT EXISTS work_preferences (
+                telegram_id INTEGER PRIMARY KEY,
+                start_minutes INTEGER NOT NULL DEFAULT 540,
+                end_minutes INTEGER NOT NULL DEFAULT 1080,
+                notifications_enabled INTEGER NOT NULL DEFAULT 1
+                    CHECK (notifications_enabled IN (0, 1)),
+                updated_at TEXT NOT NULL,
+                FOREIGN KEY (telegram_id) REFERENCES users(telegram_id)
+            );
+
+            CREATE TABLE IF NOT EXISTS work_reminders (
+                telegram_id INTEGER NOT NULL,
+                work_date TEXT NOT NULL,
+                result TEXT NOT NULL,
+                handled_at TEXT NOT NULL,
+                PRIMARY KEY (telegram_id, work_date),
+                FOREIGN KEY (telegram_id) REFERENCES users(telegram_id)
+            );
+
             CREATE INDEX IF NOT EXISTS idx_support_requests_status
                 ON support_requests(status, created_at);
 
@@ -105,6 +138,9 @@ class Database:
 
             CREATE INDEX IF NOT EXISTS idx_gratitudes_created
                 ON gratitudes(created_at);
+
+            CREATE INDEX IF NOT EXISTS idx_work_reminders_date
+                ON work_reminders(work_date);
             """
         )
         await self._connection.commit()
@@ -400,6 +436,132 @@ class Database:
                     setting_value = excluded.setting_value
                 """,
                 ("on" if enabled else "off",),
+            )
+            await connection.commit()
+
+    async def get_work_settings(self, telegram_id: int) -> WorkSettings:
+        connection = self._require_connection()
+        cursor = await connection.execute(
+            """
+            SELECT start_minutes, end_minutes, notifications_enabled
+            FROM work_preferences
+            WHERE telegram_id = ?
+            """,
+            (telegram_id,),
+        )
+        row = await cursor.fetchone()
+        await cursor.close()
+        if row is None:
+            return WorkSettings(
+                telegram_id=telegram_id,
+                start_minutes=9 * 60,
+                end_minutes=18 * 60,
+                notifications_enabled=True,
+            )
+        return WorkSettings(
+            telegram_id=telegram_id,
+            start_minutes=int(row["start_minutes"]),
+            end_minutes=int(row["end_minutes"]),
+            notifications_enabled=bool(row["notifications_enabled"]),
+        )
+
+    async def set_work_schedule(
+        self,
+        telegram_id: int,
+        start_minutes: int,
+        end_minutes: int,
+    ) -> None:
+        connection = self._require_connection()
+        async with self._lock:
+            await connection.execute(
+                """
+                INSERT INTO work_preferences (
+                    telegram_id, start_minutes, end_minutes,
+                    notifications_enabled, updated_at
+                ) VALUES (?, ?, ?, 1, ?)
+                ON CONFLICT(telegram_id) DO UPDATE SET
+                    start_minutes = excluded.start_minutes,
+                    end_minutes = excluded.end_minutes,
+                    updated_at = excluded.updated_at
+                """,
+                (telegram_id, start_minutes, end_minutes, _utc_now()),
+            )
+            await connection.commit()
+
+    async def set_work_notifications_enabled(
+        self,
+        telegram_id: int,
+        enabled: bool,
+    ) -> None:
+        connection = self._require_connection()
+        async with self._lock:
+            await connection.execute(
+                """
+                INSERT INTO work_preferences (
+                    telegram_id, start_minutes, end_minutes,
+                    notifications_enabled, updated_at
+                ) VALUES (?, 540, 1080, ?, ?)
+                ON CONFLICT(telegram_id) DO UPDATE SET
+                    notifications_enabled = excluded.notifications_enabled,
+                    updated_at = excluded.updated_at
+                """,
+                (telegram_id, 1 if enabled else 0, _utc_now()),
+            )
+            await connection.commit()
+
+    async def list_due_work_reminders(
+        self,
+        work_date: str,
+        current_minutes: int,
+    ) -> list[WorkReminderCandidate]:
+        connection = self._require_connection()
+        cursor = await connection.execute(
+            """
+            SELECT
+                users.telegram_id,
+                COALESCE(preferences.end_minutes, 1080) AS end_minutes
+            FROM users
+            LEFT JOIN work_preferences AS preferences
+                ON preferences.telegram_id = users.telegram_id
+            LEFT JOIN work_reminders AS reminder
+                ON reminder.telegram_id = users.telegram_id
+               AND reminder.work_date = ?
+            WHERE COALESCE(preferences.notifications_enabled, 1) = 1
+              AND reminder.telegram_id IS NULL
+            ORDER BY users.telegram_id
+            """,
+            (work_date,),
+        )
+        rows = await cursor.fetchall()
+        await cursor.close()
+
+        candidates: list[WorkReminderCandidate] = []
+        for row in rows:
+            end_minutes = int(row["end_minutes"])
+            if end_minutes - 30 <= current_minutes < end_minutes:
+                candidates.append(
+                    WorkReminderCandidate(
+                        telegram_id=int(row["telegram_id"]),
+                        end_minutes=end_minutes,
+                    )
+                )
+        return candidates
+
+    async def mark_work_reminder_handled(
+        self,
+        telegram_id: int,
+        work_date: str,
+        result: str,
+    ) -> None:
+        connection = self._require_connection()
+        async with self._lock:
+            await connection.execute(
+                """
+                INSERT OR IGNORE INTO work_reminders (
+                    telegram_id, work_date, result, handled_at
+                ) VALUES (?, ?, ?, ?)
+                """,
+                (telegram_id, work_date, result, _utc_now()),
             )
             await connection.commit()
 

@@ -14,6 +14,8 @@ from .config import ConfigurationError, Settings
 from .db import Database
 from .handlers import build_router
 from .notifications import notification_worker
+from .work_handlers import build_work_router
+from .work_notifications import work_report_notification_worker
 
 
 async def main() -> None:
@@ -34,6 +36,7 @@ async def main() -> None:
     )
     dispatcher = Dispatcher(storage=MemoryStorage())
     dispatcher.include_router(build_router(settings, database, api))
+    dispatcher.include_router(build_work_router(settings, database, api))
 
     await bot.set_my_commands(
         [
@@ -42,7 +45,7 @@ async def main() -> None:
         ]
     )
 
-    worker = asyncio.create_task(
+    renewal_worker = asyncio.create_task(
         notification_worker(
             bot,
             api,
@@ -50,12 +53,16 @@ async def main() -> None:
             settings.notification_poll_seconds,
         )
     )
+    work_worker = asyncio.create_task(
+        work_report_notification_worker(bot, api, database)
+    )
 
     try:
         await dispatcher.start_polling(bot)
     finally:
-        worker.cancel()
-        await asyncio.gather(worker, return_exceptions=True)
+        renewal_worker.cancel()
+        work_worker.cancel()
+        await asyncio.gather(renewal_worker, work_worker, return_exceptions=True)
         await bot.session.close()
         await api.close()
         await database.close()
@@ -66,4 +73,3 @@ def run() -> None:
         asyncio.run(main())
     except ConfigurationError as exc:
         raise SystemExit(f"Configuration error: {exc}") from exc
-

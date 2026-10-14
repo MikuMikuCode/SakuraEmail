@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from typing import Any
 
@@ -36,6 +37,49 @@ class RenewalNotification:
     expiring_at: str
     new_key: str
     new_expires_at: str
+
+
+@dataclass(frozen=True, slots=True)
+class WorkProfile:
+    display_name: str
+    full_name: str
+    today_points: float
+    week_points: float
+    month_points: float
+
+
+@dataclass(frozen=True, slots=True)
+class WorkType:
+    article: str
+    coefficient: float
+
+
+@dataclass(frozen=True, slots=True)
+class WorkCatalog:
+    employee_found: bool
+    items: tuple[WorkType, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class WorkReportItem:
+    article: str
+    quantity: int
+
+
+@dataclass(frozen=True, slots=True)
+class WorkReport:
+    employee_found: bool
+    found: bool
+    editable: bool
+    report_date: str
+    items: tuple[WorkReportItem, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class WorkReportSaveResult:
+    saved: bool
+    message: str
+    unknown_articles: tuple[str, ...]
 
 
 class SakuraAppsScriptApi:
@@ -113,11 +157,108 @@ class SakuraAppsScriptApi:
             )
         return notifications
 
-    async def _post(self, action: str, **values: str) -> dict[str, Any]:
+    async def get_work_profile(self, telegram_id: int) -> WorkProfile | None:
+        payload = await self._post(
+            "bot_work_profile",
+            telegram_id=str(telegram_id),
+        )
+        if payload.get("found") is not True:
+            return None
+
+        stats = payload.get("stats", {})
+        if not isinstance(stats, dict):
+            stats = {}
+        return WorkProfile(
+            display_name=str(payload.get("display_name", "")).strip(),
+            full_name=str(payload.get("full_name", "")).strip(),
+            today_points=_safe_float(stats.get("today")),
+            week_points=_safe_float(stats.get("week")),
+            month_points=_safe_float(stats.get("month")),
+        )
+
+    async def get_work_catalog(self, telegram_id: int) -> WorkCatalog:
+        payload = await self._post(
+            "bot_report_catalog",
+            telegram_id=str(telegram_id),
+        )
+        raw_items = payload.get("items", [])
+        if not isinstance(raw_items, list):
+            raise SakuraApiUnavailable("Apps Script returned an invalid work catalog")
+
+        items: list[WorkType] = []
+        for raw_item in raw_items:
+            if not isinstance(raw_item, dict):
+                continue
+            article = str(raw_item.get("article", "")).strip().upper()
+            coefficient = _safe_float(raw_item.get("coefficient"))
+            if article and coefficient > 0:
+                items.append(WorkType(article=article, coefficient=coefficient))
+        return WorkCatalog(
+            employee_found=payload.get("found") is True,
+            items=tuple(items),
+        )
+
+    async def get_work_report(self, telegram_id: int, report_date: str) -> WorkReport:
+        payload = await self._post(
+            "bot_get_report",
+            telegram_id=str(telegram_id),
+            report_date=report_date,
+        )
+        raw_items = payload.get("items", [])
+        if not isinstance(raw_items, list):
+            raise SakuraApiUnavailable("Apps Script returned invalid report items")
+
+        items: list[WorkReportItem] = []
+        for raw_item in raw_items:
+            if not isinstance(raw_item, dict):
+                continue
+            article = str(raw_item.get("article", "")).strip().upper()
+            quantity = _safe_int(raw_item.get("quantity"))
+            if article and quantity > 0:
+                items.append(WorkReportItem(article=article, quantity=quantity))
+        return WorkReport(
+            employee_found=payload.get("employee_found") is True,
+            found=payload.get("found") is True,
+            editable=payload.get("editable") is True,
+            report_date=str(payload.get("report_date", report_date)).strip(),
+            items=tuple(items),
+        )
+
+    async def save_work_report(
+        self,
+        telegram_id: int,
+        report_date: str,
+        items: list[WorkReportItem],
+    ) -> WorkReportSaveResult:
+        payload = await self._post(
+            "bot_save_report",
+            telegram_id=str(telegram_id),
+            report_date=report_date,
+            items=[
+                {
+                    "article": item.article,
+                    "quantity": item.quantity,
+                }
+                for item in items
+            ],
+        )
+        raw_unknown_articles = payload.get("unknown_articles", [])
+        unknown_articles = (
+            tuple(str(value).strip().upper() for value in raw_unknown_articles if str(value).strip())
+            if isinstance(raw_unknown_articles, list)
+            else ()
+        )
+        return WorkReportSaveResult(
+            saved=payload.get("saved") is True,
+            message=str(payload.get("message", "")).strip(),
+            unknown_articles=unknown_articles,
+        )
+
+    async def _post(self, action: str, **values: Any) -> dict[str, Any]:
         if self._session is None:
             raise RuntimeError("Apps Script API is not connected")
 
-        request_payload: dict[str, str] = {
+        request_payload: dict[str, Any] = {
             "action": action,
             "secret": self._secret,
             **values,
@@ -149,7 +290,20 @@ class SakuraAppsScriptApi:
 
 
 def _safe_int(value: Any) -> int:
-    try:
-        return int(value)
-    except (TypeError, ValueError):
+    if isinstance(value, bool):
         return 0
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float):
+        return int(value) if value.is_integer() else 0
+    text = str(value).strip()
+    if not re.fullmatch(r"[+-]?\d+", text):
+        return 0
+    return int(text)
+
+
+def _safe_float(value: Any) -> float:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return 0.0

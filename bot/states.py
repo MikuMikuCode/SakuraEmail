@@ -12,3 +12,12 @@ class CreatorMessageStates(StatesGroup):
 
 class ThanksCommentStates(StatesGroup):
     waiting_for_comment = State()
+
+
+class WorkReportStates(StatesGroup):
+    waiting_for_report = State()
+    confirming = State()
+
+
+class WorkScheduleStates(StatesGroup):
+    waiting_for_schedule = State()
