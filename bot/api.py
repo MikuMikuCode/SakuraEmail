@@ -40,9 +40,18 @@ class RenewalNotification:
 
 
 @dataclass(frozen=True, slots=True)
+class AccessDirectoryEntry:
+    telegram_id: int | None
+    username: str | None
+    full_name: str
+    blocked: bool
+
+
+@dataclass(frozen=True, slots=True)
 class AccessSnapshot:
     allowed_ids: frozenset[int]
     blocked_ids: frozenset[int]
+    employees: tuple[AccessDirectoryEntry, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -183,9 +192,32 @@ class SakuraAppsScriptApi:
             elif telegram_id not in blocked_ids:
                 allowed_ids.add(telegram_id)
 
+        raw_employees = payload.get("employees", [])
+        if not isinstance(raw_employees, list):
+            raise SakuraApiUnavailable("Apps Script returned an invalid employee directory")
+        employees: list[AccessDirectoryEntry] = []
+        for raw_employee in raw_employees:
+            if not isinstance(raw_employee, dict):
+                continue
+            raw_username = str(raw_employee.get("telegram_username", "")).strip()
+            username = raw_username.lstrip("@").strip() or None
+            telegram_id = _safe_int(raw_employee.get("telegram_id"))
+            full_name = str(raw_employee.get("full_name", "")).strip()
+            if telegram_id <= 0 and username is None and not full_name:
+                continue
+            employees.append(
+                AccessDirectoryEntry(
+                    telegram_id=telegram_id if telegram_id > 0 else None,
+                    username=username,
+                    full_name=full_name,
+                    blocked=raw_employee.get("blocked") is True,
+                )
+            )
+
         return AccessSnapshot(
             allowed_ids=frozenset(allowed_ids),
             blocked_ids=frozenset(blocked_ids),
+            employees=tuple(employees),
         )
 
     async def get_work_profile(self, telegram_id: int) -> WorkProfile | None:

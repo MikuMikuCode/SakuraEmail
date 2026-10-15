@@ -6,7 +6,12 @@ from pathlib import Path
 from unittest.mock import AsyncMock
 
 from bot.access import AccessController, AccessDecision
-from bot.api import AccessSnapshot, SakuraApiUnavailable, SakuraAppsScriptApi
+from bot.api import (
+    AccessDirectoryEntry,
+    AccessSnapshot,
+    SakuraApiUnavailable,
+    SakuraAppsScriptApi,
+)
 from bot.db import Database
 
 
@@ -61,6 +66,14 @@ class AccessControllerTests(unittest.IsolatedAsyncioTestCase):
             AccessSnapshot(
                 allowed_ids=frozenset({101, 202}),
                 blocked_ids=frozenset(),
+                employees=(
+                    AccessDirectoryEntry(
+                        telegram_id=None,
+                        username="@User303",
+                        full_name="Иванова Анна Сергеевна",
+                        blocked=False,
+                    ),
+                ),
             ),
         ]
         access = AccessController(self.database, self.api)
@@ -74,6 +87,13 @@ class AccessControllerTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(summary.blocked, 0)
         self.assertEqual(summary.missing, 1)
         self.assertEqual(summary.total, 3)
+        self.assertEqual(len(summary.missing_users), 1)
+        self.assertEqual(summary.missing_users[0].telegram_id, 303)
+        self.assertEqual(summary.missing_users[0].username, "user303")
+        self.assertEqual(
+            summary.missing_users[0].full_name,
+            "Иванова Анна Сергеевна",
+        )
         self.assertEqual(self.api.get_access_snapshot.await_count, 2)
 
 

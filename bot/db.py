@@ -314,6 +314,30 @@ class Database:
             int(row["missing_count"] or 0),
         )
 
+    async def list_missing_access_users(self) -> list[BotUser]:
+        connection = self._require_connection()
+        cursor = await connection.execute(
+            """
+            SELECT users.telegram_id, users.username, users.first_name, users.last_name
+            FROM users
+            LEFT JOIN access_snapshot AS access
+                ON access.telegram_id = users.telegram_id
+            WHERE access.telegram_id IS NULL
+            ORDER BY LOWER(COALESCE(users.username, '')), users.telegram_id
+            """
+        )
+        rows = await cursor.fetchall()
+        await cursor.close()
+        return [
+            BotUser(
+                telegram_id=int(row["telegram_id"]),
+                username=str(row["username"]) if row["username"] else None,
+                first_name=str(row["first_name"]),
+                last_name=str(row["last_name"]),
+            )
+            for row in rows
+        ]
+
     async def find_user_by_username(self, username: str) -> BotUser | None:
         connection = self._require_connection()
         cursor = await connection.execute(

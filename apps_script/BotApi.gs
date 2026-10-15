@@ -176,15 +176,35 @@ function botGetAccessSnapshot_(payload) {
   const databaseColumns = getRequiredColumns_(databaseTable.headers, {
     telegramId: databaseDefinitions.telegramId
   }, databaseTable.sheet.getName());
+  const fioColumn = findColumn_(databaseTable.headers, databaseDefinitions.fio);
+  const telegramUserColumn = findColumn_(
+    databaseTable.headers,
+    databaseDefinitions.telegramUser
+  );
   const usersByTelegramId = Object.create(null);
+  const employees = [];
 
   for (const row of databaseTable.rows) {
     const telegramId = normalizeTelegramId_(cell_(row, databaseColumns.telegramId));
+    const blocked = botIsBlockedAccessMarker_(cell_(row, 1));
+    const fullName = fioColumn === -1 ? '' : String(cell_(row, fioColumn)).trim();
+    const telegramUsername = telegramUserColumn === -1
+      ? ''
+      : String(cell_(row, telegramUserColumn)).trim();
+
+    if (telegramId || telegramUsername || fullName) {
+      employees.push({
+        telegram_id: telegramId,
+        telegram_username: telegramUsername,
+        full_name: fullName,
+        blocked
+      });
+    }
+
     if (!telegramId) {
       continue;
     }
 
-    const blocked = botIsBlockedAccessMarker_(cell_(row, 1));
     if (!Object.prototype.hasOwnProperty.call(usersByTelegramId, telegramId)) {
       usersByTelegramId[telegramId] = false;
     }
@@ -198,7 +218,8 @@ function botGetAccessSnapshot_(payload) {
     users: Object.keys(usersByTelegramId).map(telegramId => ({
       telegram_id: telegramId,
       blocked: usersByTelegramId[telegramId]
-    }))
+    })),
+    employees
   };
 }
 

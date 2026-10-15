@@ -163,6 +163,10 @@ class DatabaseTests(unittest.IsolatedAsyncioTestCase):
             await self.database.get_registered_access_counts(),
             (1, 1, 1),
         )
+        self.assertEqual(
+            [user.telegram_id for user in await self.database.list_missing_access_users()],
+            [303],
+        )
         self.assertIsNotNone(await self.database.get_access_snapshot_synced_at())
 
         await self.database.replace_access_snapshot({202}, set())
@@ -172,6 +176,13 @@ class DatabaseTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(
             await self.database.get_registered_access_counts(),
             (1, 0, 2),
+        )
+        self.assertEqual(
+            {
+                user.telegram_id
+                for user in await self.database.list_missing_access_users()
+            },
+            {101, 303},
         )
 
 

@@ -4,6 +4,7 @@ import unittest
 from unittest.mock import AsyncMock
 
 from bot.api import (
+    AccessDirectoryEntry,
     AccessSnapshot,
     SakuraApiUnavailable,
     SakuraAppsScriptApi,
@@ -27,7 +28,22 @@ class ApiParsingTests(unittest.IsolatedAsyncioTestCase):
                     {"telegram_id": "101", "blocked": True},
                     {"telegram_id": "bad", "blocked": True},
                     "bad row",
-                ]
+                ],
+                "employees": [
+                    {
+                        "telegram_id": "",
+                        "telegram_username": " @MissingUser ",
+                        "full_name": " Иванова Анна Сергеевна ",
+                        "blocked": False,
+                    },
+                    {
+                        "telegram_id": "101",
+                        "telegram_username": "BlockedUser",
+                        "full_name": "Петров Иван",
+                        "blocked": True,
+                    },
+                    {"telegram_id": "bad", "telegram_username": "", "full_name": ""},
+                ],
             }
         )
 
@@ -36,6 +52,20 @@ class ApiParsingTests(unittest.IsolatedAsyncioTestCase):
             AccessSnapshot(
                 allowed_ids=frozenset({202}),
                 blocked_ids=frozenset({101}),
+                employees=(
+                    AccessDirectoryEntry(
+                        telegram_id=None,
+                        username="MissingUser",
+                        full_name="Иванова Анна Сергеевна",
+                        blocked=False,
+                    ),
+                    AccessDirectoryEntry(
+                        telegram_id=101,
+                        username="BlockedUser",
+                        full_name="Петров Иван",
+                        blocked=True,
+                    ),
+                ),
             ),
         )
         api._post.assert_awaited_once_with("bot_access_snapshot")

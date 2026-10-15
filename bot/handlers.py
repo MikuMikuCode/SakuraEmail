@@ -400,6 +400,21 @@ def build_router(
             f"Заблокировано: {summary.blocked}\n"
             f"Не найдено: {summary.missing}"
         )
+        if summary.missing_users:
+            lines = []
+            for missing_user in summary.missing_users:
+                username = (
+                    f"@{escape(missing_user.username)}"
+                    if missing_user.username
+                    else "тег отсутствует"
+                )
+                full_name = escape(missing_user.full_name or "имя отсутствует")
+                lines.append(
+                    f"• {username} — {full_name} — "
+                    f"<code>{missing_user.telegram_id}</code>"
+                )
+            for text in _chunk_access_lines(lines):
+                await callback.message.answer(text)
 
     @router.callback_query(F.data == "admin_requests")
     async def admin_requests(callback: CallbackQuery) -> None:
@@ -762,6 +777,22 @@ def _format_request(request: SupportRequest) -> str:
         f"Создана: {escape(format_datetime(request.created_at))}\n\n"
         f"{escape(request.reason)}"
     )
+
+
+def _chunk_access_lines(lines: list[str], limit: int = 3500) -> list[str]:
+    title = "⚠️ <b>Не найдены данные сотрудников:</b>"
+    chunks: list[str] = []
+    current = title
+    for line in lines:
+        candidate = current + "\n" + line
+        if len(candidate) > limit and current != title:
+            chunks.append(current)
+            current = title + "\n" + line
+        else:
+            current = candidate
+    if current != title:
+        chunks.append(current)
+    return chunks
 
 
 def _format_thanks_stats(stats: ThanksStats) -> str:

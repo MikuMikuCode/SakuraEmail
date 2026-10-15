@@ -10,7 +10,7 @@ from aiogram import BaseMiddleware
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message, ReplyKeyboardRemove, TelegramObject
 
-from .api import SakuraApiError, SakuraAppsScriptApi
+from .api import AccessSnapshot, SakuraApiError, SakuraAppsScriptApi
 from .db import BotUser, Database
 
 
@@ -31,10 +31,18 @@ class AccessDecision(StrEnum):
 
 
 @dataclass(frozen=True, slots=True)
+class MissingAccessUser:
+    telegram_id: int
+    username: str | None
+    full_name: str
+
+
+@dataclass(frozen=True, slots=True)
 class AccessRefreshSummary:
     allowed: int
     blocked: int
     missing: int
+    missing_users: tuple[MissingAccessUser, ...] = ()
 
     @property
     def total(self) -> int:
@@ -53,6 +61,7 @@ class AccessController:
         self._cache_ttl = cache_ttl
         self._refresh_lock = asyncio.Lock()
         self._next_refresh_attempt: datetime | None = None
+        self._latest_snapshot: AccessSnapshot | None = None
 
     async def check(self, telegram_id: int) -> AccessDecision:
         if not await self.ensure_fresh():
@@ -86,10 +95,29 @@ class AccessController:
         if not await self._refresh(force=True):
             return None
         allowed, blocked, missing = await self._database.get_registered_access_counts()
+        employees_by_username = {
+            _normalize_username(employee.username): employee
+            for employee in (self._latest_snapshot.employees if self._latest_snapshot else ())
+            if _normalize_username(employee.username)
+        }
+        missing_users: list[MissingAccessUser] = []
+        for user in await self._database.list_missing_access_users():
+            employee = employees_by_username.get(_normalize_username(user.username))
+            telegram_name = " ".join(
+                value.strip() for value in (user.first_name, user.last_name) if value.strip()
+            )
+            missing_users.append(
+                MissingAccessUser(
+                    telegram_id=user.telegram_id,
+                    username=user.username,
+                    full_name=(employee.full_name if employee and employee.full_name else telegram_name),
+                )
+            )
         return AccessRefreshSummary(
             allowed=allowed,
             blocked=blocked,
             missing=missing,
+            missing_users=tuple(missing_users),
         )
 
     async def _refresh(self, force: bool) -> bool:
@@ -125,8 +153,13 @@ class AccessController:
                 snapshot.allowed_ids,
                 snapshot.blocked_ids,
             )
+            self._latest_snapshot = snapshot
             self._next_refresh_attempt = None
             return True
+
+
+def _normalize_username(value: str | None) -> str:
+    return str(value or "").strip().lstrip("@").lower()
 
 
 class AccessMiddleware(BaseMiddleware):
