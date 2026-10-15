@@ -377,6 +377,30 @@ def build_router(
                 f"Открытых заявок: {pending_count}"
             )
 
+    @router.callback_query(F.data == "admin_refresh_access")
+    async def admin_refresh_access(callback: CallbackQuery) -> None:
+        if not _is_owner(callback.from_user, settings):
+            await callback.answer("Недостаточно прав", show_alert=True)
+            return
+
+        await callback.answer("Обновляю список доступа…")
+        summary = await access.refresh_now()
+        if callback.message is None:
+            return
+        if summary is None:
+            await callback.message.answer(
+                "Сейчас не удалось обновить список доступа. Попробуйте немного позже."
+            )
+            return
+
+        await callback.message.answer(
+            "🌸 <b>Список доступа обновлён</b>\n\n"
+            f"Всего пользователей бота: {summary.total}\n"
+            f"Допущено: {summary.allowed}\n"
+            f"Заблокировано: {summary.blocked}\n"
+            f"Не найдено: {summary.missing}"
+        )
+
     @router.callback_query(F.data == "admin_requests")
     async def admin_requests(callback: CallbackQuery) -> None:
         if not _is_owner(callback.from_user, settings):

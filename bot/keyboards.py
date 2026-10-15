@@ -160,6 +160,12 @@ def management_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [InlineKeyboardButton(text="📊 Статистика", callback_data="admin_stats")],
+            [
+                InlineKeyboardButton(
+                    text="🔄 Обновить доступ",
+                    callback_data="admin_refresh_access",
+                )
+            ],
             [InlineKeyboardButton(text="💌 Заявки", callback_data="admin_requests")],
             [
                 InlineKeyboardButton(

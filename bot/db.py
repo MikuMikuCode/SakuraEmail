@@ -288,6 +288,32 @@ class Database:
         await cursor.close()
         return {int(row["telegram_id"]) for row in rows}
 
+    async def get_registered_access_counts(self) -> tuple[int, int, int]:
+        connection = self._require_connection()
+        cursor = await connection.execute(
+            """
+            SELECT
+                SUM(CASE WHEN access.access_status = 'allowed' THEN 1 ELSE 0 END)
+                    AS allowed_count,
+                SUM(CASE WHEN access.access_status = 'blocked' THEN 1 ELSE 0 END)
+                    AS blocked_count,
+                SUM(CASE WHEN access.telegram_id IS NULL THEN 1 ELSE 0 END)
+                    AS missing_count
+            FROM users
+            LEFT JOIN access_snapshot AS access
+                ON access.telegram_id = users.telegram_id
+            """
+        )
+        row = await cursor.fetchone()
+        await cursor.close()
+        if row is None:
+            return 0, 0, 0
+        return (
+            int(row["allowed_count"] or 0),
+            int(row["blocked_count"] or 0),
+            int(row["missing_count"] or 0),
+        )
+
     async def find_user_by_username(self, username: str) -> BotUser | None:
         connection = self._require_connection()
         cursor = await connection.execute(

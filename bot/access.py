@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from enum import StrEnum
 
@@ -27,6 +28,17 @@ class AccessDecision(StrEnum):
     ALLOWED = "allowed"
     DENIED = "denied"
     UNAVAILABLE = "unavailable"
+
+
+@dataclass(frozen=True, slots=True)
+class AccessRefreshSummary:
+    allowed: int
+    blocked: int
+    missing: int
+
+    @property
+    def total(self) -> int:
+        return self.allowed + self.blocked + self.missing
 
 
 class AccessController:
@@ -68,19 +80,40 @@ class AccessController:
         return await self._database.list_allowed_user_ids()
 
     async def ensure_fresh(self) -> bool:
+        return await self._refresh(force=False)
+
+    async def refresh_now(self) -> AccessRefreshSummary | None:
+        if not await self._refresh(force=True):
+            return None
+        allowed, blocked, missing = await self._database.get_registered_access_counts()
+        return AccessRefreshSummary(
+            allowed=allowed,
+            blocked=blocked,
+            missing=missing,
+        )
+
+    async def _refresh(self, force: bool) -> bool:
         synced_at = await self._database.get_access_snapshot_synced_at()
         now = datetime.now(timezone.utc)
-        if synced_at is not None and now - synced_at < self._cache_ttl:
+        if not force and synced_at is not None and now - synced_at < self._cache_ttl:
             return True
-        if self._next_refresh_attempt is not None and now < self._next_refresh_attempt:
+        if (
+            not force
+            and self._next_refresh_attempt is not None
+            and now < self._next_refresh_attempt
+        ):
             return False
 
         async with self._refresh_lock:
             synced_at = await self._database.get_access_snapshot_synced_at()
             now = datetime.now(timezone.utc)
-            if synced_at is not None and now - synced_at < self._cache_ttl:
+            if not force and synced_at is not None and now - synced_at < self._cache_ttl:
                 return True
-            if self._next_refresh_attempt is not None and now < self._next_refresh_attempt:
+            if (
+                not force
+                and self._next_refresh_attempt is not None
+                and now < self._next_refresh_attempt
+            ):
                 return False
             try:
                 snapshot = await self._api.get_access_snapshot()

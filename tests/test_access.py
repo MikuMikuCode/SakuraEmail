@@ -52,6 +52,30 @@ class AccessControllerTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(await access.check(101), AccessDecision.UNAVAILABLE)
 
+    async def test_manual_refresh_ignores_cache_and_returns_registered_counts(self) -> None:
+        self.api.get_access_snapshot.side_effect = [
+            AccessSnapshot(
+                allowed_ids=frozenset({101}),
+                blocked_ids=frozenset({202}),
+            ),
+            AccessSnapshot(
+                allowed_ids=frozenset({101, 202}),
+                blocked_ids=frozenset(),
+            ),
+        ]
+        access = AccessController(self.database, self.api)
+
+        self.assertEqual(await access.check(101), AccessDecision.ALLOWED)
+        summary = await access.refresh_now()
+
+        self.assertIsNotNone(summary)
+        assert summary is not None
+        self.assertEqual(summary.allowed, 2)
+        self.assertEqual(summary.blocked, 0)
+        self.assertEqual(summary.missing, 1)
+        self.assertEqual(summary.total, 3)
+        self.assertEqual(self.api.get_access_snapshot.await_count, 2)
+
 
 if __name__ == "__main__":
     unittest.main()

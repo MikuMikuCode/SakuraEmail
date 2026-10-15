@@ -159,12 +159,20 @@ class DatabaseTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(await self.database.get_access_status(202), "blocked")
         self.assertIsNone(await self.database.get_access_status(303))
         self.assertEqual(await self.database.list_allowed_user_ids(), {101})
+        self.assertEqual(
+            await self.database.get_registered_access_counts(),
+            (1, 1, 1),
+        )
         self.assertIsNotNone(await self.database.get_access_snapshot_synced_at())
 
         await self.database.replace_access_snapshot({202}, set())
         self.assertIsNone(await self.database.get_access_status(101))
         self.assertEqual(await self.database.get_access_status(202), "allowed")
         self.assertEqual(await self.database.list_allowed_user_ids(), {202})
+        self.assertEqual(
+            await self.database.get_registered_access_counts(),
+            (1, 0, 2),
+        )
 
 
 if __name__ == "__main__":
