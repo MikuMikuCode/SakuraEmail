@@ -542,6 +542,7 @@ function botReadMultiplierCatalog_() {
   const positionsByArticle = Object.create(null);
 
   for (const row of table.rows) {
+    const name = String(cell_(row, 0) || '').trim();
     const article = botNormalizeArticle_(cell_(row, 1));
     const rawCoefficient = cell_(row, 3);
     const coefficient = typeof rawCoefficient === 'number'
@@ -554,6 +555,7 @@ function botReadMultiplierCatalog_() {
 
     const item = {
       article,
+      name,
       coefficient
     };
 

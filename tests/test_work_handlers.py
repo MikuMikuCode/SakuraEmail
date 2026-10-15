@@ -3,11 +3,12 @@ from __future__ import annotations
 import unittest
 from datetime import date
 
-from bot.api import WorkReportItem
+from bot.api import WorkReportItem, WorkType
 from bot.work_handlers import (
     format_date_button,
     format_report_confirmation,
     format_existing_today_report,
+    format_report_prompt,
     parse_report_text,
     parse_schedule,
     recent_report_dates,
@@ -71,6 +72,26 @@ class WorkScheduleParsingTests(unittest.TestCase):
 
 
 class WorkReportFormattingTests(unittest.TestCase):
+    def test_report_prompt_contains_expandable_escaped_catalog_and_inline_example(self) -> None:
+        prompt = format_report_prompt(
+            [
+                WorkType(article="FGR", coefficient=1, name="Фигурка 15см"),
+                WorkType(article="FGR1", coefficient=1, name="Фигурка <15см>"),
+            ]
+        )
+
+        self.assertIn("Считаем только <b>оригинальные макеты</b> 🌸", prompt)
+        self.assertIn("Не BVKL, а VKL. Не TOPR, а TOP.", prompt)
+        self.assertIn(
+            "<blockquote expandable>FGR • Фигурка 15см\n"
+            "FGR1 • Фигурка &lt;15см&gt;</blockquote>",
+            prompt,
+        )
+        self.assertIn(
+            "<code>FGR 12</code> или <code>FGR 12, SNB 6</code>",
+            prompt,
+        )
+
     def test_existing_today_report_is_shown_before_replacement(self) -> None:
         self.assertEqual(
             format_existing_today_report(

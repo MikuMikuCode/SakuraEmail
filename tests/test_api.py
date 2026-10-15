@@ -170,8 +170,12 @@ class ApiParsingTests(unittest.IsolatedAsyncioTestCase):
             return_value={
                 "found": True,
                 "items": [
-                    {"article": " fgr ", "coefficient": "1"},
-                    {"article": "SnB", "coefficient": 3.5},
+                    {
+                        "article": " fgr ",
+                        "name": " Фигурка 15см ",
+                        "coefficient": "1",
+                    },
+                    {"article": "SnB", "name": "Стикерпак", "coefficient": 3.5},
                     {"article": "", "coefficient": 2},
                     {"article": "ZERO", "coefficient": 0},
                     {"article": "NEG", "coefficient": -1},
@@ -188,8 +192,8 @@ class ApiParsingTests(unittest.IsolatedAsyncioTestCase):
             WorkCatalog(
                 employee_found=True,
                 items=(
-                    WorkType(article="FGR", coefficient=1.0),
-                    WorkType(article="SNB", coefficient=3.5),
+                    WorkType(article="FGR", coefficient=1.0, name="Фигурка 15см"),
+                    WorkType(article="SNB", coefficient=3.5, name="Стикерпак"),
                 ),
             ),
         )

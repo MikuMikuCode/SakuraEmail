@@ -67,6 +67,7 @@ class WorkProfile:
 class WorkType:
     article: str
     coefficient: float
+    name: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -255,7 +256,13 @@ class SakuraAppsScriptApi:
             article = str(raw_item.get("article", "")).strip().upper()
             coefficient = _safe_float(raw_item.get("coefficient"))
             if article and coefficient > 0:
-                items.append(WorkType(article=article, coefficient=coefficient))
+                items.append(
+                    WorkType(
+                        article=article,
+                        coefficient=coefficient,
+                        name=str(raw_item.get("name", "")).strip(),
+                    )
+                )
         return WorkCatalog(
             employee_found=payload.get("found") is True,
             items=tuple(items),

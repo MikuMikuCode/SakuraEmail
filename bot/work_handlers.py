@@ -10,7 +10,7 @@ from aiogram.filters import StateFilter
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message, User
 
-from .api import SakuraApiError, SakuraAppsScriptApi, WorkReportItem, WorkProfile
+from .api import SakuraApiError, SakuraAppsScriptApi, WorkReportItem, WorkProfile, WorkType
 from .config import Settings
 from .db import Database, WorkSettings
 from .formatting import MOSCOW_TIMEZONE
@@ -31,14 +31,6 @@ from .keyboards import (
 )
 from .states import WorkReportStates, WorkScheduleStates
 
-
-REPORT_PROMPT = (
-    "Считаем только <b>оригинальные макеты</b> 🌸\n\n"
-    "Напишите виды и количество одним сообщением. Например:\n"
-    "<code>FGR 12</code>\n"
-    "или\n"
-    "<code>FGR 12, SNB 6</code>"
-)
 
 _WEEKDAYS = ("Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс")
 _NAVIGATION_TEXTS = {
@@ -201,8 +193,9 @@ def build_work_router(
         await _remove_action_prompt(bot, state)
         await state.set_state(WorkReportStates.waiting_for_report)
         if callback.message is not None:
+            data = await state.get_data()
             prompt = await callback.message.answer(
-                REPORT_PROMPT,
+                str(data.get("report_prompt", "")) or format_report_prompt(()),
                 reply_markup=cancel_action_keyboard(),
             )
             await _remember_action_prompt(state, prompt)
@@ -492,9 +485,11 @@ async def _begin_report(
     await state.update_data(
         report_target_date=report_date.isoformat(),
         work_catalog=[item.article for item in catalog.items],
+        report_prompt=format_report_prompt(catalog.items),
     )
     prompt = await source_message.answer(
-        f"🌸 <b>Отчёт за {format_report_date(report_date)}</b>\n\n{REPORT_PROMPT}",
+        f"🌸 <b>Отчёт за {format_report_date(report_date)}</b>\n\n"
+        f"{format_report_prompt(catalog.items)}",
         reply_markup=cancel_action_keyboard(),
     )
     await _remember_action_prompt(state, prompt)
@@ -581,6 +576,24 @@ def recent_report_dates(today: date) -> tuple[date, date, date]:
 
 def format_report_date(value: date) -> str:
     return value.strftime("%d.%m.%Y")
+
+
+def format_report_prompt(items: tuple[WorkType, ...] | list[WorkType]) -> str:
+    catalog_lines = []
+    for item in items:
+        article = escape(item.article)
+        name = escape(item.name.strip())
+        catalog_lines.append(f"{article} • {name}" if name else article)
+
+    catalog = "\n".join(catalog_lines) or "Список пока пуст"
+    return (
+        "Считаем только <b>оригинальные макеты</b> 🌸\n"
+        "Пишем артикул основной категории. Не BVKL, а VKL. Не TOPR, а TOP.\n\n"
+        "Все артикулы:\n"
+        f"<blockquote expandable>{catalog}</blockquote>\n\n"
+        "Напишите виды и количество одним сообщением. Например:\n"
+        "<code>FGR 12</code> или <code>FGR 12, SNB 6</code>"
+    )
 
 
 def format_date_button(value: date) -> str:
