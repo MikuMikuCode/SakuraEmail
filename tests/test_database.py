@@ -137,6 +137,34 @@ class DatabaseTests(unittest.IsolatedAsyncioTestCase):
             [],
         )
 
+    async def test_weekly_report_reminder_is_due_half_hour_after_work(self) -> None:
+        week_start = "2026-10-19"
+        self.assertEqual(
+            await self.database.list_due_weekly_report_reminders(
+                week_start,
+                18 * 60 + 29,
+            ),
+            [],
+        )
+        candidates = await self.database.list_due_weekly_report_reminders(
+            week_start,
+            18 * 60 + 30,
+        )
+        self.assertEqual([candidate.telegram_id for candidate in candidates], [101])
+
+        await self.database.mark_weekly_report_reminder_handled(
+            101,
+            week_start,
+            "sent",
+        )
+        self.assertEqual(
+            await self.database.list_due_weekly_report_reminders(
+                week_start,
+                19 * 60,
+            ),
+            [],
+        )
+
     async def test_access_snapshot_replaces_old_values_and_filters_registered_users(self) -> None:
         await self.database.upsert_user(
             telegram_id=202,

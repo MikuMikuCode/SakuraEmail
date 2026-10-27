@@ -6,11 +6,13 @@ from unittest.mock import AsyncMock
 from bot.api import (
     AccessDirectoryEntry,
     AccessSnapshot,
+    MissingReportsResult,
     SakuraApiUnavailable,
     SakuraAppsScriptApi,
     WorkCatalog,
     WorkProfile,
     WorkReport,
+    WorkReportContext,
     WorkReportItem,
     WorkReportSaveResult,
     WorkType,
@@ -273,6 +275,72 @@ class ApiParsingTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(report.report_date, "2026-10-11")
         self.assertFalse(report.found)
         self.assertEqual(report.items, ())
+
+    async def test_report_context_combines_catalog_and_existing_report(self) -> None:
+        api = SakuraAppsScriptApi("https://example.com/exec", "x" * 32)
+        api._post = AsyncMock(
+            return_value={
+                "employee_found": True,
+                "found": True,
+                "editable": True,
+                "report_date": "2026-10-12",
+                "catalog": [
+                    {
+                        "article": "fgr",
+                        "name": "Фигурка",
+                        "coefficient": 1,
+                    }
+                ],
+                "items": [{"article": "FGR", "quantity": 12}],
+            }
+        )
+
+        context = await api.get_work_report_context(101, "2026-10-12")
+
+        self.assertEqual(
+            context,
+            WorkReportContext(
+                employee_found=True,
+                catalog=(WorkType(article="FGR", coefficient=1, name="Фигурка"),),
+                report=WorkReport(
+                    employee_found=True,
+                    found=True,
+                    editable=True,
+                    report_date="2026-10-12",
+                    items=(WorkReportItem(article="FGR", quantity=12),),
+                ),
+            ),
+        )
+        api._post.assert_awaited_once_with(
+            "bot_report_context",
+            telegram_id="101",
+            report_date="2026-10-12",
+        )
+
+    async def test_missing_report_dates_are_limited_to_requested_dates(self) -> None:
+        api = SakuraAppsScriptApi("https://example.com/exec", "x" * 32)
+        api._post = AsyncMock(
+            return_value={
+                "employee_found": True,
+                "missing_dates": ["2026-10-05", "unexpected", "2026-10-09"],
+            }
+        )
+        requested = ["2026-10-05", "2026-10-09"]
+
+        result = await api.get_missing_work_report_dates(101, requested)
+
+        self.assertEqual(
+            result,
+            MissingReportsResult(
+                employee_found=True,
+                missing_dates=("2026-10-05", "2026-10-09"),
+            ),
+        )
+        api._post.assert_awaited_once_with(
+            "bot_missing_reports",
+            telegram_id="101",
+            report_dates=requested,
+        )
 
     async def test_work_report_rejects_invalid_items_collection(self) -> None:
         for raw_items in (None, {}, "FGR 12"):

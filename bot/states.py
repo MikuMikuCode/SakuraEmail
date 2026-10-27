@@ -21,6 +21,9 @@ class ThanksCommentStates(StatesGroup):
 
 
 class WorkReportStates(StatesGroup):
+    choosing_date = State()
+    waiting_for_date = State()
+    reviewing_existing = State()
     waiting_for_report = State()
     confirming = State()
 

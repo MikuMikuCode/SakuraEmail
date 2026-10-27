@@ -2,17 +2,23 @@ from __future__ import annotations
 
 import tempfile
 import unittest
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
 from unittest.mock import AsyncMock, call
 
 from aiogram import Bot
 
 from bot.access import AccessController
-from bot.api import SakuraApiError, SakuraAppsScriptApi, WorkReport
+from bot.api import MissingReportsResult, SakuraApiError, SakuraAppsScriptApi, WorkReport
 from bot.db import Database, WorkReminderCandidate
 from bot.formatting import MOSCOW_TIMEZONE
-from bot.work_notifications import REMINDER_TEXT, deliver_work_report_notifications
+from bot.work_notifications import (
+    REMINDER_TEXT,
+    deliver_weekly_missing_report_notifications,
+    deliver_work_report_notifications,
+    format_weekly_missing_reports,
+    previous_week_work_dates,
+)
 
 
 MONDAY = datetime(2026, 10, 12, tzinfo=MOSCOW_TIMEZONE)
@@ -187,6 +193,73 @@ class WorkNotificationTests(unittest.IsolatedAsyncioTestCase):
         )
         database.mark_work_reminder_handled.assert_not_awaited()
         self.bot.send_message.assert_not_awaited()
+
+    async def test_monday_weekly_reminder_lists_missing_weekdays_and_is_deduplicated(self) -> None:
+        self.api.get_missing_work_report_dates.return_value = MissingReportsResult(
+            employee_found=True,
+            missing_dates=("2026-10-05", "2026-10-09"),
+        )
+
+        await deliver_weekly_missing_report_notifications(
+            self.bot,
+            self.api,
+            self.database,
+            self.access,
+            now=_at(18, 29),
+        )
+        self.bot.send_message.assert_not_awaited()
+
+        await deliver_weekly_missing_report_notifications(
+            self.bot,
+            self.api,
+            self.database,
+            self.access,
+            now=_at(18, 30),
+        )
+        await deliver_weekly_missing_report_notifications(
+            self.bot,
+            self.api,
+            self.database,
+            self.access,
+            now=_at(18, 31),
+        )
+
+        self.api.get_missing_work_report_dates.assert_awaited_once_with(
+            101,
+            [
+                "2026-10-05",
+                "2026-10-06",
+                "2026-10-07",
+                "2026-10-08",
+                "2026-10-09",
+            ],
+        )
+        self.bot.send_message.assert_awaited_once()
+        args, kwargs = self.bot.send_message.await_args
+        self.assertEqual(args[0], 101)
+        self.assertIn("<code>ПН • 05.10.2026</code>", args[1])
+        self.assertIn("<code>ПТ • 09.10.2026</code>", args[1])
+        self.assertIn("reply_markup", kwargs)
+
+    def test_previous_week_and_message_format_are_fixed_to_monday_friday(self) -> None:
+        self.assertEqual(
+            previous_week_work_dates(date(2026, 10, 12)),
+            (
+                date(2026, 10, 5),
+                date(2026, 10, 6),
+                date(2026, 10, 7),
+                date(2026, 10, 8),
+                date(2026, 10, 9),
+            ),
+        )
+        self.assertEqual(
+            format_weekly_missing_reports(
+                [date(2026, 10, 5), date(2026, 10, 9)]
+            ),
+            "🌸 За прошлую неделю не заполнен отчёт:\n"
+            "<code>ПН • 05.10.2026</code>\n"
+            "<code>ПТ • 09.10.2026</code>",
+        )
 
 
 if __name__ == "__main__":

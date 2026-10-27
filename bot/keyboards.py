@@ -21,8 +21,7 @@ MANAGEMENT_TEXT = "⚙️ Управление"
 def main_keyboard(is_creator: bool) -> ReplyKeyboardMarkup:
     rows = [
         [KeyboardButton(text=REPORT_TEXT), KeyboardButton(text=KEYS_TEXT)],
-        [KeyboardButton(text=SETTINGS_TEXT)],
-        [KeyboardButton(text=THANKS_TEXT)],
+        [KeyboardButton(text=SETTINGS_TEXT), KeyboardButton(text=THANKS_TEXT)],
     ]
     if is_creator:
         rows.append([KeyboardButton(text=MANAGEMENT_TEXT)])
@@ -67,11 +66,11 @@ def existing_report_keyboard() -> InlineKeyboardMarkup:
             [
                 InlineKeyboardButton(
                     text="Изменить",
-                    callback_data="work_report_replace_today",
+                    callback_data="work_report_replace_selected",
                 ),
                 InlineKeyboardButton(
                     text="Отмена",
-                    callback_data="work_report_keep_today",
+                    callback_data="work_report_keep_selected",
                 ),
             ]
         ]
@@ -100,37 +99,30 @@ def work_settings_keyboard(notifications_enabled: bool) -> InlineKeyboardMarkup:
             ],
             [
                 InlineKeyboardButton(
-                    text="Изменить старый отчёт",
-                    callback_data="work_old_reports",
+                    text="Оставить заявку",
+                    callback_data="new_key_request",
                 )
             ],
         ]
     )
 
 
-def old_report_dates_keyboard(dates: list[tuple[str, str]]) -> InlineKeyboardMarkup:
+def report_date_picker_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [
                 InlineKeyboardButton(
-                    text=label,
-                    callback_data=f"work_report_view:{date_key}",
+                    text="Сегодня",
+                    callback_data="work_report_date_today",
                 )
-                for date_key, label in dates
-            ]
-        ]
-    )
-
-
-def old_report_detail_keyboard(report_date: str) -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
+            ],
             [
                 InlineKeyboardButton(
-                    text="Изменить",
-                    callback_data=f"work_report_edit:{report_date}",
+                    text="Выбрать другую дату",
+                    callback_data="work_report_date_custom",
                 )
-            ]
+            ],
+            [InlineKeyboardButton(text="Отменить", callback_data="cancel_action")],
         ]
     )
 
@@ -138,7 +130,12 @@ def old_report_detail_keyboard(report_date: str) -> InlineKeyboardMarkup:
 def work_reminder_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text="Заполнить отчёт", callback_data="work_report_today")]
+            [
+                InlineKeyboardButton(
+                    text="Заполнить отчёт",
+                    callback_data="work_report_choose_date",
+                )
+            ]
         ]
     )
 

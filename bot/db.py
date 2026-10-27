@@ -130,6 +130,15 @@ class Database:
                 FOREIGN KEY (telegram_id) REFERENCES users(telegram_id)
             );
 
+            CREATE TABLE IF NOT EXISTS weekly_report_reminders (
+                telegram_id INTEGER NOT NULL,
+                week_start TEXT NOT NULL,
+                result TEXT NOT NULL,
+                handled_at TEXT NOT NULL,
+                PRIMARY KEY (telegram_id, week_start),
+                FOREIGN KEY (telegram_id) REFERENCES users(telegram_id)
+            );
+
             CREATE TABLE IF NOT EXISTS access_snapshot (
                 telegram_id INTEGER PRIMARY KEY,
                 access_status TEXT NOT NULL
@@ -147,6 +156,9 @@ class Database:
 
             CREATE INDEX IF NOT EXISTS idx_work_reminders_date
                 ON work_reminders(work_date);
+
+            CREATE INDEX IF NOT EXISTS idx_weekly_report_reminders_week
+                ON weekly_report_reminders(week_start);
             """
         )
         await self._connection.commit()
@@ -712,6 +724,58 @@ class Database:
                 ) VALUES (?, ?, ?, ?)
                 """,
                 (telegram_id, work_date, result, _utc_now()),
+            )
+            await connection.commit()
+
+    async def list_due_weekly_report_reminders(
+        self,
+        week_start: str,
+        current_minutes: int,
+    ) -> list[WorkReminderCandidate]:
+        connection = self._require_connection()
+        cursor = await connection.execute(
+            """
+            SELECT
+                users.telegram_id,
+                COALESCE(preferences.end_minutes, 1080) AS end_minutes
+            FROM users
+            LEFT JOIN work_preferences AS preferences
+                ON preferences.telegram_id = users.telegram_id
+            LEFT JOIN weekly_report_reminders AS reminder
+                ON reminder.telegram_id = users.telegram_id
+               AND reminder.week_start = ?
+            WHERE COALESCE(preferences.notifications_enabled, 1) = 1
+              AND reminder.telegram_id IS NULL
+            ORDER BY users.telegram_id
+            """,
+            (week_start,),
+        )
+        rows = await cursor.fetchall()
+        await cursor.close()
+        return [
+            WorkReminderCandidate(
+                telegram_id=int(row["telegram_id"]),
+                end_minutes=int(row["end_minutes"]),
+            )
+            for row in rows
+            if current_minutes >= int(row["end_minutes"]) + 30
+        ]
+
+    async def mark_weekly_report_reminder_handled(
+        self,
+        telegram_id: int,
+        week_start: str,
+        result: str,
+    ) -> None:
+        connection = self._require_connection()
+        async with self._lock:
+            await connection.execute(
+                """
+                INSERT OR IGNORE INTO weekly_report_reminders (
+                    telegram_id, week_start, result, handled_at
+                ) VALUES (?, ?, ?, ?)
+                """,
+                (telegram_id, week_start, result, _utc_now()),
             )
             await connection.commit()
 

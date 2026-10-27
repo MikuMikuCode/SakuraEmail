@@ -92,6 +92,19 @@ class WorkReport:
 
 
 @dataclass(frozen=True, slots=True)
+class WorkReportContext:
+    employee_found: bool
+    catalog: tuple[WorkType, ...]
+    report: WorkReport
+
+
+@dataclass(frozen=True, slots=True)
+class MissingReportsResult:
+    employee_found: bool
+    missing_dates: tuple[str, ...]
+
+
+@dataclass(frozen=True, slots=True)
 class WorkReportSaveResult:
     saved: bool
     message: str
@@ -292,6 +305,83 @@ class SakuraAppsScriptApi:
             editable=payload.get("editable") is True,
             report_date=str(payload.get("report_date", report_date)).strip(),
             items=tuple(items),
+        )
+
+    async def get_work_report_context(
+        self,
+        telegram_id: int,
+        report_date: str,
+    ) -> WorkReportContext:
+        payload = await self._post(
+            "bot_report_context",
+            telegram_id=str(telegram_id),
+            report_date=report_date,
+        )
+        raw_catalog = payload.get("catalog", [])
+        raw_items = payload.get("items", [])
+        if not isinstance(raw_catalog, list) or not isinstance(raw_items, list):
+            raise SakuraApiUnavailable("Apps Script returned an invalid report context")
+
+        catalog: list[WorkType] = []
+        for raw_item in raw_catalog:
+            if not isinstance(raw_item, dict):
+                continue
+            article = str(raw_item.get("article", "")).strip().upper()
+            coefficient = _safe_float(raw_item.get("coefficient"))
+            if article and coefficient > 0:
+                catalog.append(
+                    WorkType(
+                        article=article,
+                        coefficient=coefficient,
+                        name=str(raw_item.get("name", "")).strip(),
+                    )
+                )
+
+        report_items: list[WorkReportItem] = []
+        for raw_item in raw_items:
+            if not isinstance(raw_item, dict):
+                continue
+            article = str(raw_item.get("article", "")).strip().upper()
+            quantity = _safe_int(raw_item.get("quantity"))
+            if article and quantity > 0:
+                report_items.append(WorkReportItem(article=article, quantity=quantity))
+
+        employee_found = payload.get("employee_found") is True
+        report = WorkReport(
+            employee_found=employee_found,
+            found=payload.get("found") is True,
+            editable=payload.get("editable") is True,
+            report_date=str(payload.get("report_date", report_date)).strip(),
+            items=tuple(report_items),
+        )
+        return WorkReportContext(
+            employee_found=employee_found,
+            catalog=tuple(catalog),
+            report=report,
+        )
+
+    async def get_missing_work_report_dates(
+        self,
+        telegram_id: int,
+        report_dates: list[str],
+    ) -> MissingReportsResult:
+        payload = await self._post(
+            "bot_missing_reports",
+            telegram_id=str(telegram_id),
+            report_dates=report_dates,
+        )
+        raw_missing_dates = payload.get("missing_dates", [])
+        if not isinstance(raw_missing_dates, list):
+            raise SakuraApiUnavailable("Apps Script returned invalid missing report dates")
+        requested = set(report_dates)
+        missing_dates = tuple(
+            value
+            for raw_value in raw_missing_dates
+            if (value := str(raw_value).strip()) in requested
+        )
+        return MissingReportsResult(
+            employee_found=payload.get("employee_found") is True,
+            missing_dates=missing_dates,
         )
 
     async def save_work_report(

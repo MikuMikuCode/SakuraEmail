@@ -317,6 +317,58 @@ function botGetReportCatalog_(payload) {
   };
 }
 
+function botGetReportContext_(payload) {
+  if (!botIsAuthorized_(payload)) {
+    return {
+      ok: false,
+      message: 'unauthorized'
+    };
+  }
+
+  const telegramId = normalizeTelegramId_(payload.telegram_id || '');
+  const reportDate = botParseReportDate_(payload.report_date || '');
+  if (!telegramId) {
+    return {
+      ok: false,
+      message: 'telegram_id_required'
+    };
+  }
+  if (!reportDate) {
+    return {
+      ok: true,
+      employee_found: false,
+      found: false,
+      editable: false,
+      message: 'invalid_report_date',
+      catalog: [],
+      items: []
+    };
+  }
+  if (!botWorkerExists_(telegramId)) {
+    return {
+      ok: true,
+      employee_found: false,
+      found: false,
+      editable: false,
+      report_date: botReportDateKey_(reportDate),
+      catalog: [],
+      items: []
+    };
+  }
+
+  const transactions = botReadWorkTransactions_();
+  const items = botReportItemsForDate_(transactions, telegramId, reportDate);
+  return {
+    ok: true,
+    employee_found: true,
+    found: items.length > 0,
+    editable: botIsEditableReportDate_(reportDate, new Date()),
+    report_date: botReportDateKey_(reportDate),
+    catalog: botReadMultiplierCatalog_(),
+    items
+  };
+}
+
 function botGetWorkReport_(payload) {
   if (!botIsAuthorized_(payload)) {
     return {
@@ -357,28 +409,7 @@ function botGetWorkReport_(payload) {
     };
   }
 
-  const itemsByArticle = Object.create(null);
-  const articleOrder = [];
-
-  for (const transaction of botReadWorkTransactions_()) {
-    if (
-      transaction.telegramId !== telegramId ||
-      botReportDateKey_(transaction.date) !== botReportDateKey_(reportDate)
-    ) {
-      continue;
-    }
-
-    if (!Object.prototype.hasOwnProperty.call(itemsByArticle, transaction.article)) {
-      itemsByArticle[transaction.article] = 0;
-      articleOrder.push(transaction.article);
-    }
-    itemsByArticle[transaction.article] += transaction.quantity;
-  }
-
-  const items = articleOrder.map(article => ({
-    article,
-    quantity: itemsByArticle[article]
-  }));
+  const items = botReportItemsForDate_(botReadWorkTransactions_(), telegramId, reportDate);
 
   return {
     ok: true,
@@ -387,6 +418,60 @@ function botGetWorkReport_(payload) {
     editable: botIsEditableReportDate_(reportDate, new Date()),
     report_date: botReportDateKey_(reportDate),
     items
+  };
+}
+
+function botGetMissingReports_(payload) {
+  if (!botIsAuthorized_(payload)) {
+    return {
+      ok: false,
+      message: 'unauthorized'
+    };
+  }
+
+  const telegramId = normalizeTelegramId_(payload.telegram_id || '');
+  if (!telegramId) {
+    return {
+      ok: false,
+      message: 'telegram_id_required'
+    };
+  }
+  if (!botWorkerExists_(telegramId)) {
+    return {
+      ok: true,
+      employee_found: false,
+      missing_dates: []
+    };
+  }
+
+  const rawDates = Array.isArray(payload.report_dates) ? payload.report_dates.slice(0, 31) : [];
+  const requestedDates = [];
+  const requestedSet = Object.create(null);
+  for (const rawDate of rawDates) {
+    const reportDate = botParseReportDate_(rawDate);
+    if (!reportDate) {
+      continue;
+    }
+    const dateKey = botReportDateKey_(reportDate);
+    if (!Object.prototype.hasOwnProperty.call(requestedSet, dateKey)) {
+      requestedSet[dateKey] = true;
+      requestedDates.push(dateKey);
+    }
+  }
+
+  const presentDates = Object.create(null);
+  for (const transaction of botReadWorkTransactions_()) {
+    if (transaction.telegramId === telegramId) {
+      presentDates[botReportDateKey_(transaction.date)] = true;
+    }
+  }
+
+  return {
+    ok: true,
+    employee_found: true,
+    missing_dates: requestedDates.filter(
+      dateKey => !Object.prototype.hasOwnProperty.call(presentDates, dateKey)
+    )
   };
 }
 
@@ -580,13 +665,14 @@ function botMultiplierMap_(catalog) {
 
 function botReadWorkTransactions_() {
   const sheet = botGetSheetByNames_(WORK_REPORT_SHEET_NAMES);
-  const maxRows = sheet.getMaxRows();
-  if (maxRows < 2) {
+  const lastDataRow = botLastNonEmptyRowInColumn_(sheet, 4);
+  if (lastDataRow < 2) {
     return [];
   }
 
-  const dateValues = sheet.getRange(2, 1, maxRows - 1, 1).getValues();
-  const reportValues = sheet.getRange(2, 4, maxRows - 1, 3).getValues();
+  const rowCount = lastDataRow - 1;
+  const dateValues = sheet.getRange(2, 1, rowCount, 1).getValues();
+  const reportValues = sheet.getRange(2, 4, rowCount, 3).getValues();
   const transactions = [];
 
   for (let index = 0; index < dateValues.length; index += 1) {
@@ -611,6 +697,31 @@ function botReadWorkTransactions_() {
   return transactions;
 }
 
+function botReportItemsForDate_(transactions, telegramId, reportDate) {
+  const itemsByArticle = Object.create(null);
+  const articleOrder = [];
+  const reportDateKey = botReportDateKey_(reportDate);
+
+  for (const transaction of transactions) {
+    if (
+      transaction.telegramId !== telegramId ||
+      botReportDateKey_(transaction.date) !== reportDateKey
+    ) {
+      continue;
+    }
+    if (!Object.prototype.hasOwnProperty.call(itemsByArticle, transaction.article)) {
+      itemsByArticle[transaction.article] = 0;
+      articleOrder.push(transaction.article);
+    }
+    itemsByArticle[transaction.article] += transaction.quantity;
+  }
+
+  return articleOrder.map(article => ({
+    article,
+    quantity: itemsByArticle[article]
+  }));
+}
+
 function botCalculatePoints_(transactions, multiplierMap, telegramId, startDateKey, endDateKey) {
   let total = 0;
 
@@ -633,9 +744,14 @@ function botCalculatePoints_(transactions, multiplierMap, telegramId, startDateK
 
 function botReplaceWorkReport_(telegramId, reportDate, items) {
   const sheet = botGetSheetByNames_(WORK_REPORT_SHEET_NAMES);
-  const maxRows = Math.max(sheet.getMaxRows(), 2);
-  const dateValues = sheet.getRange(2, 1, maxRows - 1, 1).getValues();
-  const reportValues = sheet.getRange(2, 4, maxRows - 1, 3).getValues();
+  const lastDataRow = botLastNonEmptyRowInColumn_(sheet, 4);
+  const rowCount = Math.max(lastDataRow - 1, 0);
+  const dateValues = rowCount > 0
+    ? sheet.getRange(2, 1, rowCount, 1).getValues()
+    : [];
+  const reportValues = rowCount > 0
+    ? sheet.getRange(2, 4, rowCount, 3).getValues()
+    : [];
   const reportDateKey = botReportDateKey_(reportDate);
   const matchingRows = [];
   const availableRows = [];
@@ -670,11 +786,14 @@ function botReplaceWorkReport_(telegramId, reportDate, items) {
   }
 
   if (targetRows.length < items.length) {
-    const rowsToAdd = items.length - targetRows.length;
-    const previousMaxRows = sheet.getMaxRows();
-    sheet.insertRowsAfter(previousMaxRows, rowsToAdd);
-    for (let offset = 1; offset <= rowsToAdd; offset += 1) {
-      targetRows.push(previousMaxRows + offset);
+    const firstNewRow = Math.max(lastDataRow + 1, 2);
+    const rowsNeeded = items.length - targetRows.length;
+    const requiredLastRow = firstNewRow + rowsNeeded - 1;
+    if (requiredLastRow > sheet.getMaxRows()) {
+      sheet.insertRowsAfter(sheet.getMaxRows(), requiredLastRow - sheet.getMaxRows());
+    }
+    for (let offset = 0; offset < rowsNeeded; offset += 1) {
+      targetRows.push(firstNewRow + offset);
     }
   }
 
@@ -733,8 +852,20 @@ function botReportDateKey_(date) {
 
 function botIsEditableReportDate_(reportDate, now) {
   const today = botMoscowCalendarDate_(now);
-  const daysOld = Math.round((today.getTime() - reportDate.getTime()) / 86400000);
-  return daysOld >= 0 && daysOld < WORK_REPORT_EDIT_DAYS;
+  return reportDate.getTime() <= today.getTime();
+}
+
+function botLastNonEmptyRowInColumn_(sheet, column) {
+  const maxRows = sheet.getMaxRows();
+  if (maxRows < 2) {
+    return 1;
+  }
+  const lastCell = sheet.getRange(maxRows, column);
+  if (String(lastCell.getDisplayValue()).trim() !== '') {
+    return maxRows;
+  }
+  const lastDataCell = lastCell.getNextDataCell(SpreadsheetApp.Direction.UP);
+  return Math.max(lastDataCell.getRow(), 1);
 }
 
 function botReportTimestamp_(reportDate, now) {

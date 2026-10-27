@@ -5,13 +5,13 @@ from datetime import date
 
 from bot.api import WorkReportItem, WorkType
 from bot.work_handlers import (
-    format_date_button,
+    format_existing_report,
+    format_report_date_label,
     format_report_confirmation,
-    format_existing_today_report,
     format_report_prompt,
+    parse_report_date,
     parse_report_text,
     parse_schedule,
-    recent_report_dates,
 )
 
 
@@ -81,7 +81,7 @@ class WorkReportFormattingTests(unittest.TestCase):
         )
 
         self.assertIn("Считаем только <b>оригинальные макеты</b> 🌸", prompt)
-        self.assertIn("Не BVKL, а VKL. Не TOPR, а TOP.", prompt)
+        self.assertIn("Не BVKL, а VKL. Не ZTOP, а TOP.", prompt)
         self.assertIn(
             "<blockquote expandable>FGR • Фигурка 15см\n"
             "FGR1 • Фигурка &lt;15см&gt;</blockquote>",
@@ -94,31 +94,30 @@ class WorkReportFormattingTests(unittest.TestCase):
 
     def test_existing_today_report_is_shown_before_replacement(self) -> None:
         self.assertEqual(
-            format_existing_today_report(
+            format_existing_report(
+                date(2026, 10, 12),
                 [
                     WorkReportItem(article="FGR", quantity=10),
                     WorkReportItem(article="SNB", quantity=9),
                 ]
             ),
-            "🌸 Вы сегодня его уже отправляли:\n\n"
+            "🌸 Вы уже отправляли отчёт за <code>ПН • 12.10.2026</code>:\n\n"
             "FGR · 10\n"
             "SNB · 9\n\n"
             "Изменить?",
         )
 
-    def test_recent_dates_are_three_calendar_days_in_chronological_order(self) -> None:
+    def test_arbitrary_report_date_and_label_are_supported(self) -> None:
+        self.assertEqual(parse_report_date("12.10.2024"), date(2024, 10, 12))
+        self.assertIsNone(parse_report_date("2024-10-12"))
         self.assertEqual(
-            recent_report_dates(date(2026, 10, 14)),
-            (
-                date(2026, 10, 12),
-                date(2026, 10, 13),
-                date(2026, 10, 14),
-            ),
+            format_report_date_label(date(2026, 10, 12)),
+            "ПН • 12.10.2026",
         )
-
-    def test_date_button_uses_fixed_russian_weekday(self) -> None:
-        self.assertEqual(format_date_button(date(2026, 10, 12)), "Пн • 12.10")
-        self.assertEqual(format_date_button(date(2026, 10, 18)), "Вс • 18.10")
+        self.assertEqual(
+            format_report_date_label(date(2026, 10, 18)),
+            "ВС • 18.10.2026",
+        )
 
     def test_confirmation_matches_required_format_and_escapes_article(self) -> None:
         self.assertEqual(
