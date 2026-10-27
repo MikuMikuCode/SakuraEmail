@@ -7,6 +7,7 @@ from bot.api import WorkReportItem, WorkType
 from bot.work_handlers import (
     format_existing_report,
     format_report_date_label,
+    format_report_date_label_html,
     format_report_confirmation,
     format_report_prompt,
     parse_report_date,
@@ -101,7 +102,7 @@ class WorkReportFormattingTests(unittest.TestCase):
                     WorkReportItem(article="SNB", quantity=9),
                 ]
             ),
-            "🌸 Вы уже отправляли отчёт за <code>ПН • 12.10.2026</code>:\n\n"
+            "🌸 Вы уже отправляли отчёт за ПН • <code>12.10.2026</code>:\n\n"
             "FGR · 10\n"
             "SNB · 9\n\n"
             "Изменить?",
@@ -117,6 +118,10 @@ class WorkReportFormattingTests(unittest.TestCase):
         self.assertEqual(
             format_report_date_label(date(2026, 10, 18)),
             "ВС • 18.10.2026",
+        )
+        self.assertEqual(
+            format_report_date_label_html(date(2026, 10, 12)),
+            "ПН • <code>12.10.2026</code>",
         )
 
     def test_confirmation_matches_required_format_and_escapes_article(self) -> None:

@@ -461,7 +461,7 @@ async def _show_report_date_picker(
     today = _moscow_today()
     prompt = await source_message.answer(
         "🌸 <b>Выберите дату, за которую заполняете отчёт!</b>\n\n"
-        f"Сегодня <code>{format_report_date_label(today)}</code>",
+        f"Сегодня {format_report_date_label_html(today)}",
         reply_markup=report_date_picker_keyboard(),
     )
     await _remember_action_prompt(state, prompt)
@@ -613,6 +613,13 @@ def format_report_date_label(value: date) -> str:
     return f"{_WEEKDAYS[value.weekday()].upper()} • {format_report_date(value)}"
 
 
+def format_report_date_label_html(value: date) -> str:
+    return (
+        f"{_WEEKDAYS[value.weekday()].upper()} • "
+        f"<code>{format_report_date(value)}</code>"
+    )
+
+
 def format_report_prompt(items: tuple[WorkType, ...] | list[WorkType]) -> str:
     catalog_lines = []
     for item in items:
@@ -662,7 +669,7 @@ def format_existing_report(
     items: tuple[WorkReportItem, ...] | list[WorkReportItem],
 ) -> str:
     lines = [
-        f"🌸 Вы уже отправляли отчёт за <code>{format_report_date_label(report_date)}</code>:",
+        f"🌸 Вы уже отправляли отчёт за {format_report_date_label_html(report_date)}:",
         "",
     ]
     lines.extend(f"{escape(item.article)} · {item.quantity}" for item in items)

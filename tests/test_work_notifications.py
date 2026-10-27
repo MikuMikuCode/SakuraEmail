@@ -237,8 +237,8 @@ class WorkNotificationTests(unittest.IsolatedAsyncioTestCase):
         self.bot.send_message.assert_awaited_once()
         args, kwargs = self.bot.send_message.await_args
         self.assertEqual(args[0], 101)
-        self.assertIn("<code>ПН • 05.10.2026</code>", args[1])
-        self.assertIn("<code>ПТ • 09.10.2026</code>", args[1])
+        self.assertIn("ПН • <code>05.10.2026</code>", args[1])
+        self.assertIn("ПТ • <code>09.10.2026</code>", args[1])
         self.assertIn("reply_markup", kwargs)
 
     def test_previous_week_and_message_format_are_fixed_to_monday_friday(self) -> None:
@@ -257,8 +257,8 @@ class WorkNotificationTests(unittest.IsolatedAsyncioTestCase):
                 [date(2026, 10, 5), date(2026, 10, 9)]
             ),
             "🌸 За прошлую неделю не заполнен отчёт:\n"
-            "<code>ПН • 05.10.2026</code>\n"
-            "<code>ПТ • 09.10.2026</code>",
+            "ПН • <code>05.10.2026</code>\n"
+            "ПТ • <code>09.10.2026</code>",
         )
 
 

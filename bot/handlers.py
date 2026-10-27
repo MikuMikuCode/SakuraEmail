@@ -130,23 +130,7 @@ def build_router(
 
     @router.callback_query(F.data == "cancel_action")
     async def cancel_action(callback: CallbackQuery, state: FSMContext) -> None:
-        data = await state.get_data()
-        tracked_chat_id = data.get("action_prompt_chat_id")
-        tracked_message_id = data.get("action_prompt_message_id")
-        if (
-            callback.message is not None
-            and tracked_chat_id is not None
-            and tracked_message_id is not None
-            and (
-                callback.message.chat.id != int(tracked_chat_id)
-                or callback.message.message_id != int(tracked_message_id)
-            )
-        ):
-            await callback.answer("Это действие уже завершено")
-            try:
-                await callback.message.edit_reply_markup(reply_markup=None)
-            except TelegramBadRequest:
-                pass
+        await _cancel_current_action(callback, state)
 
     @router.message(OwnerCustomEmojiFilter(settings.owner_id))
     async def show_custom_emoji_ids(
@@ -174,16 +158,6 @@ def build_router(
             await message.answer(
                 "Сейчас не получилось выбрать стикер из набора. Попробуйте ещё раз чуть позже 🌸"
             )
-            return
-
-        current_state = await state.get_state()
-        await state.clear()
-        await callback.answer("Действие отменено" if current_state else "Действие уже завершено")
-        if callback.message is not None:
-            try:
-                await callback.message.edit_reply_markup(reply_markup=None)
-            except TelegramBadRequest:
-                pass
 
     @router.callback_query(F.data == "new_key_request")
     async def begin_application(callback: CallbackQuery, state: FSMContext, bot: Bot) -> None:
@@ -806,6 +780,36 @@ async def _remember_action_prompt(state: FSMContext, message: Message) -> None:
         action_prompt_chat_id=message.chat.id,
         action_prompt_message_id=message.message_id,
     )
+
+
+async def _cancel_current_action(callback: CallbackQuery, state: FSMContext) -> None:
+    data = await state.get_data()
+    tracked_chat_id = data.get("action_prompt_chat_id")
+    tracked_message_id = data.get("action_prompt_message_id")
+    if (
+        callback.message is not None
+        and tracked_chat_id is not None
+        and tracked_message_id is not None
+        and (
+            callback.message.chat.id != int(tracked_chat_id)
+            or callback.message.message_id != int(tracked_message_id)
+        )
+    ):
+        await callback.answer("Это действие уже завершено")
+        try:
+            await callback.message.edit_reply_markup(reply_markup=None)
+        except TelegramBadRequest:
+            pass
+        return
+
+    current_state = await state.get_state()
+    await state.clear()
+    await callback.answer("Действие отменено" if current_state else "Действие уже завершено")
+    if callback.message is not None:
+        try:
+            await callback.message.edit_reply_markup(reply_markup=None)
+        except TelegramBadRequest:
+            pass
 
 
 async def _remove_action_prompt(bot: Bot, state: FSMContext) -> None:

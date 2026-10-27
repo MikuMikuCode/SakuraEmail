@@ -233,7 +233,7 @@ def format_weekly_missing_reports(missing_dates: list[date]) -> str:
     weekdays = ("ПН", "ВТ", "СР", "ЧТ", "ПТ", "СБ", "ВС")
     lines = ["🌸 За прошлую неделю не заполнен отчёт:"]
     lines.extend(
-        f"<code>{weekdays[value.weekday()]} • {value.strftime('%d.%m.%Y')}</code>"
+        f"{weekdays[value.weekday()]} • <code>{value.strftime('%d.%m.%Y')}</code>"
         for value in missing_dates
     )
     return "\n".join(lines)
