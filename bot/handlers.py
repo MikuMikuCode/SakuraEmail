@@ -1,17 +1,20 @@
 from __future__ import annotations
 
 import asyncio
+import random
 import re
 from html import escape
+from typing import Any
 
 from aiogram import Bot, F, Router
+from aiogram.enums import MessageEntityType
 from aiogram.exceptions import (
     TelegramAPIError,
     TelegramBadRequest,
     TelegramForbiddenError,
     TelegramRetryAfter,
 )
-from aiogram.filters import Command, CommandStart, StateFilter
+from aiogram.filters import BaseFilter, Command, CommandStart, StateFilter
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message, User
 
@@ -48,6 +51,41 @@ APPLICATION_PROMPT = (
     "ключ, получить техническую поддержку или просто поблагодарить :3\n\n"
     "При запросе дополнительного ключа сообщите, зачем вам нужен новый ключ."
 )
+AINO_STICKER_SET_NAME = "AinoStick"
+
+
+class OwnerCustomEmojiFilter(BaseFilter):
+    def __init__(self, owner_id: int) -> None:
+        self._owner_id = owner_id
+
+    async def __call__(self, message: Message) -> bool | dict[str, Any]:
+        if message.from_user is None or message.from_user.id != self._owner_id:
+            return False
+        custom_emoji_ids = _custom_emoji_ids(message)
+        if not custom_emoji_ids:
+            return False
+        return {"custom_emoji_ids": custom_emoji_ids}
+
+
+class StickerPackResponder:
+    def __init__(self, sticker_set_name: str) -> None:
+        self._sticker_set_name = sticker_set_name
+        self._file_ids: tuple[str, ...] = ()
+        self._lock = asyncio.Lock()
+
+    async def choose(self, bot: Bot) -> str | None:
+        if not self._file_ids:
+            async with self._lock:
+                if not self._file_ids:
+                    sticker_set = await bot.get_sticker_set(
+                        name=self._sticker_set_name,
+                    )
+                    self._file_ids = tuple(
+                        sticker.file_id
+                        for sticker in sticker_set.stickers
+                        if sticker.file_id
+                    )
+        return random.choice(self._file_ids) if self._file_ids else None
 
 
 def build_router(
@@ -57,6 +95,7 @@ def build_router(
     access: AccessController,
 ) -> Router:
     router = Router(name="sakuraemail")
+    sticker_responder = StickerPackResponder(AINO_STICKER_SET_NAME)
 
     @router.message(CommandStart())
     async def start(message: Message, state: FSMContext, bot: Bot) -> None:
@@ -108,6 +147,33 @@ def build_router(
                 await callback.message.edit_reply_markup(reply_markup=None)
             except TelegramBadRequest:
                 pass
+
+    @router.message(OwnerCustomEmojiFilter(settings.owner_id))
+    async def show_custom_emoji_ids(
+        message: Message,
+        custom_emoji_ids: tuple[str, ...],
+    ) -> None:
+        lines = [
+            "🌸 <b>ID пользовательского эмодзи</b>",
+            "",
+            *(f"<code>{escape(value)}</code>" for value in custom_emoji_ids),
+            "",
+            "Пришлите нужный ID техническому специалисту и укажите, где использовать эмодзи.",
+        ]
+        await message.answer("\n".join(lines))
+
+    @router.message(F.sticker)
+    async def answer_with_random_sticker(message: Message, bot: Bot) -> None:
+        try:
+            sticker_file_id = await sticker_responder.choose(bot)
+            if sticker_file_id:
+                await message.answer_sticker(sticker=sticker_file_id)
+            else:
+                await message.answer("В наборе пока не нашлось доступных стикеров 🌸")
+        except TelegramAPIError:
+            await message.answer(
+                "Сейчас не получилось выбрать стикер из набора. Попробуйте ещё раз чуть позже 🌸"
+            )
             return
 
         current_state = await state.get_state()
@@ -793,6 +859,17 @@ def _chunk_access_lines(lines: list[str], limit: int = 3500) -> list[str]:
     if current != title:
         chunks.append(current)
     return chunks
+
+
+def _custom_emoji_ids(message: Message) -> tuple[str, ...]:
+    result: list[str] = []
+    entities = tuple(message.entities or ()) + tuple(message.caption_entities or ())
+    for entity in entities:
+        if entity.type != MessageEntityType.CUSTOM_EMOJI or not entity.custom_emoji_id:
+            continue
+        if entity.custom_emoji_id not in result:
+            result.append(entity.custom_emoji_id)
+    return tuple(result)
 
 
 def _format_thanks_stats(stats: ThanksStats) -> str:
