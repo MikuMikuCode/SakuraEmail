@@ -13,6 +13,15 @@ from aiogram.types import CallbackQuery, Message, User
 from .api import SakuraApiError, SakuraAppsScriptApi, WorkReportItem, WorkProfile, WorkType
 from .config import Settings
 from .db import Database, WorkSettings
+from .decor import (
+    DECORATION_DOT,
+    MINIMAL_FLOWER,
+    PINK_STARS,
+    SAKURA_1,
+    SAKURA_2,
+    SAKURA_3,
+    SAKURA_4,
+)
 from .formatting import MOSCOW_TIMEZONE
 from .keyboards import (
     KEYS_TEXT,
@@ -110,7 +119,7 @@ def build_work_router(
         await state.set_state(WorkReportStates.waiting_for_date)
         if callback.message is not None:
             prompt = await callback.message.answer(
-                "🌸 Напишите дату отчёта в формате <code>ДД.ММ.ГГГГ</code>\n"
+                f"{SAKURA_1} Напишите дату отчёта в формате <code>ДД.ММ.ГГГГ</code>\n"
                 "Например: <code>26.10.2026</code>",
                 reply_markup=cancel_action_keyboard(),
             )
@@ -192,7 +201,7 @@ def build_work_router(
             except TelegramBadRequest:
                 pass
             await callback.message.answer(
-                "Хорошо, оставляю отчёт без изменений 🌸",
+                f"Хорошо, оставляю отчёт без изменений {SAKURA_2}",
                 reply_markup=main_keyboard(callback.from_user.id == settings.owner_id),
             )
 
@@ -202,7 +211,7 @@ def build_work_router(
         text = (message.text or "").strip()
         if text in _NAVIGATION_TEXTS:
             await message.answer(
-                "Сначала завершите ввод отчёта или нажмите «Отменить» под сообщением 🌸"
+                f"Сначала завершите ввод отчёта или нажмите «Отменить» под сообщением {SAKURA_2}"
             )
             return
 
@@ -356,7 +365,7 @@ def build_work_router(
             except TelegramBadRequest:
                 pass
             await callback.message.answer(
-                "🌸 <b>Отчёт сохранён!</b> Спасибо за работу (｡•̀ᴗ-)✧",
+                f"{PINK_STARS} <b>Отчёт сохранён!</b> Спасибо за работу (｡•̀ᴗ-)✧",
                 reply_markup=main_keyboard(callback.from_user.id == settings.owner_id),
             )
 
@@ -378,7 +387,7 @@ def build_work_router(
         await state.set_state(WorkScheduleStates.waiting_for_schedule)
         if callback.message is not None:
             prompt = await callback.message.answer(
-                "🌸 Напишите начало и конец рабочего дня по мск в формате:\n"
+                f"{SAKURA_3} Напишите начало и конец рабочего дня по мск в формате:\n"
                 "<code>09:00–18:00</code>",
                 reply_markup=cancel_action_keyboard(),
             )
@@ -390,7 +399,7 @@ def build_work_router(
         text = (message.text or "").strip()
         if text in _NAVIGATION_TEXTS:
             await message.answer(
-                "Сначала укажите график или нажмите «Отменить» под сообщением 🌸"
+                f"Сначала укажите график или нажмите «Отменить» под сообщением {SAKURA_2}"
             )
             return
         try:
@@ -409,7 +418,7 @@ def build_work_router(
         await database.set_work_schedule(user.id, start_minutes, end_minutes)
         await _remove_action_prompt(bot, state)
         await state.clear()
-        await message.answer("График сохранён 🌸")
+        await message.answer(f"График сохранён {PINK_STARS}")
         await _send_settings(message, user.id, database, api)
 
     @router.callback_query(F.data == "work_notifications_toggle")
@@ -460,7 +469,7 @@ async def _show_report_date_picker(
     await state.set_state(WorkReportStates.choosing_date)
     today = _moscow_today()
     prompt = await source_message.answer(
-        "🌸 <b>Выберите дату, за которую заполняете отчёт!</b>\n\n"
+        f"{SAKURA_4} <b>Выберите дату, за которую заполняете отчёт!</b>\n\n"
         f"Сегодня {format_report_date_label_html(today)}",
         reply_markup=report_date_picker_keyboard(),
     )
@@ -629,8 +638,8 @@ def format_report_prompt(items: tuple[WorkType, ...] | list[WorkType]) -> str:
 
     catalog = "\n".join(catalog_lines) or "Список пока пуст"
     return (
-        "Считаем только <b>оригинальные макеты</b> 🌸\n"
-        "Пишем артикул основной категории. Не BVKL, а VKL. Не ZTOP, а TOP.\n\n"
+        f"Считаем только <b>оригинальные макеты</b> {SAKURA_1}\n"
+        f"{DECORATION_DOT} Пишем артикул основной категории. Не BVKL, а VKL. Не ZTOP, а TOP.\n\n"
         "Все артикулы:\n"
         f"<blockquote expandable>{catalog}</blockquote>\n\n"
         "Напишите виды и количество одним сообщением. Например:\n"
@@ -640,7 +649,7 @@ def format_report_prompt(items: tuple[WorkType, ...] | list[WorkType]) -> str:
 
 def _report_input_text(report_date: date, report_prompt: str) -> str:
     return (
-        f"🌸 <b>Отчёт за {format_report_date(report_date)}</b>\n\n"
+        f"{SAKURA_3} <b>Отчёт за {format_report_date(report_date)}</b>\n\n"
         f"{report_prompt}"
     )
 
@@ -649,7 +658,7 @@ def format_report_confirmation(
     report_date: date,
     items: tuple[WorkReportItem, ...] | list[WorkReportItem],
 ) -> str:
-    lines = [f"🌸 <b>Отчёт за {format_report_date(report_date)}</b>", ""]
+    lines = [f"{SAKURA_3} <b>Отчёт за {format_report_date(report_date)}</b>", ""]
     lines.extend(f"{escape(item.article)} · {item.quantity}" for item in items)
     lines.extend(["", "Всё верно? Отправить отчёт?"])
     return "\n".join(lines)
@@ -659,7 +668,7 @@ def format_saved_report(
     report_date: date,
     items: tuple[WorkReportItem, ...] | list[WorkReportItem],
 ) -> str:
-    lines = [f"🌸 <b>Отчёт за {format_report_date(report_date)}</b>", ""]
+    lines = [f"{SAKURA_3} <b>Отчёт за {format_report_date(report_date)}</b>", ""]
     lines.extend(f"{escape(item.article)} · {item.quantity}" for item in items)
     return "\n".join(lines)
 
@@ -669,7 +678,7 @@ def format_existing_report(
     items: tuple[WorkReportItem, ...] | list[WorkReportItem],
 ) -> str:
     lines = [
-        f"🌸 Вы уже отправляли отчёт за {format_report_date_label_html(report_date)}:",
+        f"{SAKURA_4} Вы уже отправляли отчёт за {format_report_date_label_html(report_date)}:",
         "",
     ]
     lines.extend(f"{escape(item.article)} · {item.quantity}" for item in items)
@@ -680,7 +689,7 @@ def format_existing_report(
 def _format_settings(profile: WorkProfile, work_settings: WorkSettings) -> str:
     notifications = "включены" if work_settings.notifications_enabled else "выключены"
     return (
-        f"🌸 <b>{escape(profile.display_name or profile.full_name)}</b>\n\n"
+        f"{MINIMAL_FLOWER} <b>{escape(profile.display_name or profile.full_name)}</b>\n\n"
         f"График: {_format_minutes(work_settings.start_minutes)}–"
         f"{_format_minutes(work_settings.end_minutes)} мск\n"
         f"Уведомления: {notifications}\n\n"

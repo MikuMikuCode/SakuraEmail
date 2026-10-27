@@ -22,6 +22,16 @@ from .access import AccessController, AccessDecision
 from .api import SakuraApiError, SakuraAppsScriptApi
 from .config import Settings
 from .db import Database, SupportRequest, ThanksStats
+from .decor import (
+    DECORATION_DOT,
+    MINIMAL_FLOWER,
+    PINK_STARS,
+    SAKURA_1,
+    SAKURA_2,
+    SAKURA_3,
+    SAKURA_4,
+    SAKURA_ANIMATED,
+)
 from .formatting import display_license_type, format_datetime
 from .keyboards import (
     KEYS_TEXT,
@@ -47,7 +57,7 @@ from .states import (
 
 
 APPLICATION_PROMPT = (
-    "• Опишите в одном предложении ваш запрос. Вы можете запросить дополнительный "
+    f"{DECORATION_DOT} Опишите в одном предложении ваш запрос. Вы можете запросить дополнительный "
     "ключ, получить техническую поддержку или просто поблагодарить :3\n\n"
     "При запросе дополнительного ключа сообщите, зачем вам нужен новый ключ."
 )
@@ -106,7 +116,7 @@ def build_router(
         await _save_user(database, user, is_creator)
 
         greeting = (
-            f"🌸 <b>Добро пожаловать, {escape(user.first_name)}!</b>\n\n"
+            f"{SAKURA_ANIMATED} <b>Добро пожаловать, {escape(user.first_name)}!</b>\n\n"
             "Я помогу получить лицензионный ключ для макроса, заполнить рабочий "
             "отчёт и напомню о важных делах."
         )
@@ -138,7 +148,7 @@ def build_router(
         custom_emoji_ids: tuple[str, ...],
     ) -> None:
         lines = [
-            "🌸 <b>ID пользовательского эмодзи</b>",
+            f"{MINIMAL_FLOWER} <b>ID пользовательского эмодзи</b>",
             "",
             *(f"<code>{escape(value)}</code>" for value in custom_emoji_ids),
             "",
@@ -153,10 +163,10 @@ def build_router(
             if sticker_file_id:
                 await message.answer_sticker(sticker=sticker_file_id)
             else:
-                await message.answer("В наборе пока не нашлось доступных стикеров 🌸")
+                await message.answer(f"В наборе пока не нашлось доступных стикеров {SAKURA_1}")
         except TelegramAPIError:
             await message.answer(
-                "Сейчас не получилось выбрать стикер из набора. Попробуйте ещё раз чуть позже 🌸"
+                f"Сейчас не получилось выбрать стикер из набора. Попробуйте ещё раз чуть позже {SAKURA_1}"
             )
 
     @router.callback_query(F.data == "new_key_request")
@@ -190,7 +200,7 @@ def build_router(
         await state.clear()
 
         await message.answer(
-            "🌸 Заявка отправлена создателю.",
+            f"{PINK_STARS} Заявка отправлена создателю.",
             reply_markup=main_keyboard(is_creator),
         )
 
@@ -221,7 +231,7 @@ def build_router(
         await _save_user(database, user, is_creator)
 
         await message.answer(
-            "🌸 Ищу ваши актуальные ключи…",
+            f"{SAKURA_2} Ищу ваши актуальные ключи…",
             reply_markup=main_keyboard(is_creator),
         )
         try:
@@ -240,7 +250,7 @@ def build_router(
             )
             return
 
-        lines = ["🌸 <b>Ваши активные ключи</b>"]
+        lines = [f"{SAKURA_3} <b>Ваши активные ключи</b>"]
         has_used_key = False
         for index, license_key in enumerate(keys, start=1):
             lines.append("")
@@ -292,7 +302,7 @@ def build_router(
 
         await message.answer(
             "💗 <b>Спасибо! Я передала вашу благодарность создателю</b> (˶ᵔ ᵕ ᵔ˶)♡\n\n"
-            "Вы можете добавить комментарий к своему «Спасибо!». Добавить? 🌸",
+            f"Вы можете добавить комментарий к своему «Спасибо!». Добавить? {SAKURA_1}",
             reply_markup=add_thanks_comment_keyboard(gratitude_id),
         )
         if await database.thanks_notifications_enabled():
@@ -339,7 +349,7 @@ def build_router(
             except TelegramBadRequest:
                 pass
             prompt = await callback.message.answer(
-                "🌸 <b>Добавьте комментарий к своему «Спасибо!»</b>\n\n"
+                f"{SAKURA_4} <b>Добавьте комментарий к своему «Спасибо!»</b>\n\n"
                 "Напишите его одним сообщением — я бережно передам создателю "
                 "(｡•̀ᴗ-)✧",
                 reply_markup=cancel_action_keyboard(),
@@ -351,7 +361,7 @@ def build_router(
         user = _require_user(message.from_user)
         comment = (message.text or "").strip()
         if not comment:
-            await message.answer("Напишите комментарий одним текстовым сообщением 🌸")
+            await message.answer(f"Напишите комментарий одним текстовым сообщением {SAKURA_1}")
             return
         if len(comment) > 1500:
             await message.answer("Комментарий слишком длинный. Сократите его до 1500 символов.")
@@ -399,7 +409,7 @@ def build_router(
         if user.id != settings.owner_id:
             return
         await message.answer(
-            "🌸 <b>Управление SakuraEmail</b>",
+            f"{SAKURA_ANIMATED} <b>Управление SakuraEmail</b>",
             reply_markup=management_keyboard(),
         )
 
@@ -434,7 +444,7 @@ def build_router(
             return
 
         await callback.message.answer(
-            "🌸 <b>Список доступа обновлён</b>\n\n"
+            f"{PINK_STARS} <b>Список доступа обновлён</b>\n\n"
             f"Всего пользователей бота: {summary.total}\n"
             f"Допущено: {summary.allowed}\n"
             f"Заблокировано: {summary.blocked}\n"
@@ -450,7 +460,7 @@ def build_router(
                 )
                 full_name = escape(missing_user.full_name or "имя отсутствует")
                 lines.append(
-                    f"• {username} — {full_name} — "
+                    f"{DECORATION_DOT} {username} — {full_name} — "
                     f"<code>{missing_user.telegram_id}</code>"
                 )
             for text in _chunk_access_lines(lines):
@@ -699,7 +709,7 @@ def build_router(
         await state.clear()
         if callback.message is not None:
             await callback.message.answer(
-                "🌸 <b>Рассылка завершена</b>\n"
+                f"{PINK_STARS} <b>Рассылка завершена</b>\n"
                 f"Доставлено: {delivered}\n"
                 f"Недоступны в Telegram: {unavailable}",
                 reply_markup=main_keyboard(True),
@@ -729,7 +739,7 @@ def build_router(
             try:
                 await bot.send_message(
                     telegram_id,
-                    f"🌸 Ваша заявка №{request_id} закрыта. Если понадобится помощь, "
+                    f"{SAKURA_2} Ваша заявка №{request_id} закрыта. Если понадобится помощь, "
                     "вы всегда можете оставить новую.",
                 )
             except (TelegramForbiddenError, TelegramBadRequest):

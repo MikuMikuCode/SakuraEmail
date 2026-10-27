@@ -12,6 +12,7 @@ from aiogram.types import CallbackQuery, Message, ReplyKeyboardRemove, TelegramO
 
 from .api import AccessSnapshot, SakuraApiError, SakuraAppsScriptApi
 from .db import BotUser, Database
+from .decor import SAKURA_4
 
 
 logger = logging.getLogger(__name__)
@@ -20,7 +21,7 @@ ACCESS_CACHE_TTL = timedelta(days=3)
 FAILED_REFRESH_RETRY = timedelta(minutes=5)
 CASTLE_MESSAGE = "🍄 Прости, твоя принцесса в другом замке (｡•́︿•̀｡)"
 ACCESS_UNAVAILABLE_MESSAGE = (
-    "🌸 Сейчас я не могу проверить доступ. Попробуйте немного позже."
+    f"{SAKURA_4} Сейчас я не могу проверить доступ. Попробуйте немного позже."
 )
 
 

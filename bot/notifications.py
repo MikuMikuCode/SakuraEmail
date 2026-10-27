@@ -11,6 +11,7 @@ from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError
 from .access import AccessController
 from .api import RenewalNotification, SakuraApiError, SakuraAppsScriptApi
 from .db import Database
+from .decor import SAKURA_ANIMATED
 from .formatting import display_license_type, format_datetime
 
 
@@ -62,7 +63,7 @@ async def deliver_renewal_notifications(
             continue
 
         text = (
-            "🌸 <b>Ваша лицензия скоро закончится</b>\n\n"
+            f"{SAKURA_ANIMATED} <b>Ваша лицензия скоро закончится</b>\n\n"
             f"Новый ключ:\n<blockquote><code>{escape(notification.new_key)}</code></blockquote>\n"
             f"Вид подписки: {escape(display_license_type(notification.license_type))}"
         )

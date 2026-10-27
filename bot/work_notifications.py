@@ -10,6 +10,7 @@ from aiogram.exceptions import TelegramAPIError, TelegramBadRequest, TelegramFor
 from .access import AccessController
 from .api import SakuraApiError, SakuraAppsScriptApi
 from .db import Database
+from .decor import SAKURA_ANIMATED
 from .formatting import MOSCOW_TIMEZONE
 from .keyboards import work_reminder_keyboard
 
@@ -17,7 +18,7 @@ from .keyboards import work_reminder_keyboard
 logger = logging.getLogger(__name__)
 
 REMINDER_TEXT = (
-    "🌸 До конца рабочего дня осталось полчаса!\n"
+    f"{SAKURA_ANIMATED} До конца рабочего дня осталось полчаса!\n"
     "Не забудь заполнить баллы (｡•̀ᴗ-)✧"
 )
 
@@ -231,7 +232,7 @@ def previous_week_work_dates(today: date) -> tuple[date, date, date, date, date]
 
 def format_weekly_missing_reports(missing_dates: list[date]) -> str:
     weekdays = ("ПН", "ВТ", "СР", "ЧТ", "ПТ", "СБ", "ВС")
-    lines = ["🌸 За прошлую неделю не заполнен отчёт:"]
+    lines = [f"{SAKURA_ANIMATED} За прошлую неделю не заполнен отчёт:"]
     lines.extend(
         f"{weekdays[value.weekday()]} • <code>{value.strftime('%d.%m.%Y')}</code>"
         for value in missing_dates

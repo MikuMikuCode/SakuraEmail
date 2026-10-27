@@ -11,6 +11,7 @@ from aiogram import Bot
 from bot.access import AccessController
 from bot.api import MissingReportsResult, SakuraApiError, SakuraAppsScriptApi, WorkReport
 from bot.db import Database, WorkReminderCandidate
+from bot.decor import SAKURA_ANIMATED
 from bot.formatting import MOSCOW_TIMEZONE
 from bot.work_notifications import (
     REMINDER_TEXT,
@@ -256,7 +257,7 @@ class WorkNotificationTests(unittest.IsolatedAsyncioTestCase):
             format_weekly_missing_reports(
                 [date(2026, 10, 5), date(2026, 10, 9)]
             ),
-            "🌸 За прошлую неделю не заполнен отчёт:\n"
+            f"{SAKURA_ANIMATED} За прошлую неделю не заполнен отчёт:\n"
             "ПН • <code>05.10.2026</code>\n"
             "ПТ • <code>09.10.2026</code>",
         )

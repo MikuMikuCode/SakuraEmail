@@ -4,6 +4,7 @@ import unittest
 from datetime import date
 
 from bot.api import WorkReportItem, WorkType
+from bot.decor import DECORATION_DOT, SAKURA_1, SAKURA_3, SAKURA_4
 from bot.work_handlers import (
     format_existing_report,
     format_report_date_label,
@@ -81,7 +82,14 @@ class WorkReportFormattingTests(unittest.TestCase):
             ]
         )
 
-        self.assertIn("Считаем только <b>оригинальные макеты</b> 🌸", prompt)
+        self.assertIn(
+            f"Считаем только <b>оригинальные макеты</b> {SAKURA_1}",
+            prompt,
+        )
+        self.assertIn(
+            f"{DECORATION_DOT} Пишем артикул основной категории.",
+            prompt,
+        )
         self.assertIn("Не BVKL, а VKL. Не ZTOP, а TOP.", prompt)
         self.assertIn(
             "<blockquote expandable>FGR • Фигурка 15см\n"
@@ -102,7 +110,7 @@ class WorkReportFormattingTests(unittest.TestCase):
                     WorkReportItem(article="SNB", quantity=9),
                 ]
             ),
-            "🌸 Вы уже отправляли отчёт за ПН • <code>12.10.2026</code>:\n\n"
+            f"{SAKURA_4} Вы уже отправляли отчёт за ПН • <code>12.10.2026</code>:\n\n"
             "FGR · 10\n"
             "SNB · 9\n\n"
             "Изменить?",
@@ -133,7 +141,7 @@ class WorkReportFormattingTests(unittest.TestCase):
                     WorkReportItem(article="<SNB>", quantity=3),
                 ],
             ),
-            "🌸 <b>Отчёт за 12.10.2026</b>\n\n"
+            f"{SAKURA_3} <b>Отчёт за 12.10.2026</b>\n\n"
             "FGR · 1\n"
             "&lt;SNB&gt; · 3\n\n"
             "Всё верно? Отправить отчёт?",
