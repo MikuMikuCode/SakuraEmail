@@ -11,23 +11,26 @@ from aiogram import Bot
 from bot.access import AccessController
 from bot.api import MissingReportsResult, SakuraApiError, SakuraAppsScriptApi, WorkReport
 from bot.db import Database, WorkReminderCandidate
-from bot.decor import SAKURA_ANIMATED
 from bot.formatting import MOSCOW_TIMEZONE
 from bot.work_notifications import (
     REMINDER_TEXT,
-    deliver_weekly_missing_report_notifications,
+    current_week_work_dates,
     deliver_work_report_notifications,
-    format_weekly_missing_reports,
-    previous_week_work_dates,
+    format_friday_reminder,
 )
 
 
 MONDAY = datetime(2026, 10, 12, tzinfo=MOSCOW_TIMEZONE)
+FRIDAY = datetime(2026, 10, 16, tzinfo=MOSCOW_TIMEZONE)
 SATURDAY = datetime(2026, 10, 17, 17, 30, tzinfo=MOSCOW_TIMEZONE)
 
 
 def _at(hour: int, minute: int) -> datetime:
     return MONDAY.replace(hour=hour, minute=minute)
+
+
+def _friday_at(hour: int, minute: int) -> datetime:
+    return FRIDAY.replace(hour=hour, minute=minute)
 
 
 def _report(*, found: bool) -> WorkReport:
@@ -195,72 +198,86 @@ class WorkNotificationTests(unittest.IsolatedAsyncioTestCase):
         database.mark_work_reminder_handled.assert_not_awaited()
         self.bot.send_message.assert_not_awaited()
 
-    async def test_monday_weekly_reminder_lists_missing_weekdays_and_is_deduplicated(self) -> None:
+    async def test_friday_reminder_lists_current_week_gaps_and_is_deduplicated(self) -> None:
         self.api.get_missing_work_report_dates.return_value = MissingReportsResult(
             employee_found=True,
-            missing_dates=("2026-10-05", "2026-10-09"),
+            missing_dates=("2026-10-12", "2026-10-16"),
         )
 
-        await deliver_weekly_missing_report_notifications(
+        await deliver_work_report_notifications(
             self.bot,
             self.api,
             self.database,
             self.access,
-            now=_at(18, 29),
+            now=_friday_at(17, 30),
         )
-        self.bot.send_message.assert_not_awaited()
-
-        await deliver_weekly_missing_report_notifications(
+        await deliver_work_report_notifications(
             self.bot,
             self.api,
             self.database,
             self.access,
-            now=_at(18, 30),
-        )
-        await deliver_weekly_missing_report_notifications(
-            self.bot,
-            self.api,
-            self.database,
-            self.access,
-            now=_at(18, 31),
+            now=_friday_at(17, 31),
         )
 
         self.api.get_missing_work_report_dates.assert_awaited_once_with(
             101,
             [
-                "2026-10-05",
-                "2026-10-06",
-                "2026-10-07",
-                "2026-10-08",
-                "2026-10-09",
+                "2026-10-12",
+                "2026-10-13",
+                "2026-10-14",
+                "2026-10-15",
+                "2026-10-16",
             ],
         )
+        self.api.get_work_report.assert_not_awaited()
         self.bot.send_message.assert_awaited_once()
         args, kwargs = self.bot.send_message.await_args
         self.assertEqual(args[0], 101)
-        self.assertIn("ПН • <code>05.10.2026</code>", args[1])
-        self.assertIn("ПТ • <code>09.10.2026</code>", args[1])
+        self.assertTrue(args[1].startswith(REMINDER_TEXT))
+        self.assertIn("За эту неделю не заполнен отчет:", args[1])
+        self.assertIn("ПН • <code>12.10.2026</code>", args[1])
+        self.assertIn("ПТ • <code>16.10.2026</code>", args[1])
         self.assertIn("reply_markup", kwargs)
 
-    def test_previous_week_and_message_format_are_fixed_to_monday_friday(self) -> None:
+    async def test_friday_without_gaps_sends_standard_reminder(self) -> None:
+        self.api.get_missing_work_report_dates.return_value = MissingReportsResult(
+            employee_found=True,
+            missing_dates=(),
+        )
+
+        await deliver_work_report_notifications(
+            self.bot,
+            self.api,
+            self.database,
+            self.access,
+            now=_friday_at(17, 30),
+        )
+
+        self.bot.send_message.assert_awaited_once()
+        args, _ = self.bot.send_message.await_args
+        self.assertEqual(args, (101, REMINDER_TEXT))
+
+    def test_current_week_and_friday_message_are_fixed_to_monday_friday(self) -> None:
         self.assertEqual(
-            previous_week_work_dates(date(2026, 10, 12)),
+            current_week_work_dates(date(2026, 10, 16)),
             (
-                date(2026, 10, 5),
-                date(2026, 10, 6),
-                date(2026, 10, 7),
-                date(2026, 10, 8),
-                date(2026, 10, 9),
+                date(2026, 10, 12),
+                date(2026, 10, 13),
+                date(2026, 10, 14),
+                date(2026, 10, 15),
+                date(2026, 10, 16),
             ),
         )
         self.assertEqual(
-            format_weekly_missing_reports(
-                [date(2026, 10, 5), date(2026, 10, 9)]
+            format_friday_reminder(
+                [date(2026, 10, 12), date(2026, 10, 16)]
             ),
-            f"{SAKURA_ANIMATED} За прошлую неделю не заполнен отчёт:\n"
-            "ПН • <code>05.10.2026</code>\n"
-            "ПТ • <code>09.10.2026</code>",
+            f"{REMINDER_TEXT}\n\n"
+            "За эту неделю не заполнен отчет:\n"
+            "ПН • <code>12.10.2026</code>\n"
+            "ПТ • <code>16.10.2026</code>",
         )
+        self.assertEqual(format_friday_reminder([]), REMINDER_TEXT)
 
 
 if __name__ == "__main__":
